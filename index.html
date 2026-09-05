@@ -352,6 +352,19 @@
   .benefit-row:last-child{border-bottom:none;}
   .benefit-icon{margin-right:4px;}
   .benefit-year, .benefit-value{color:var(--muted);margin-left:8px;font-size:12.5px;}
+  .bsettings-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+  .bsettings-row:last-child{border-bottom:none;}
+  .bsettings-row .bs-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0;}
+  .bsettings-row .bs-name{font-weight:600;min-width:130px;}
+  .bsettings-row .bs-desc{color:var(--muted);font-size:12px;flex:1;}
+  .bsettings-row .bs-meta{color:var(--muted);font-size:12px;flex:1;}
+  .toggle-switch{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;}
+  .toggle-switch input{opacity:0;width:0;height:0;}
+  .toggle-slider{position:absolute;cursor:pointer;inset:0;background:#e3ddc9;border-radius:20px;transition:.15s;}
+  .toggle-slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;top:3px;
+    background:#fff;border-radius:50%;transition:.15s;}
+  .toggle-switch input:checked + .toggle-slider{background:var(--green);}
+  .toggle-switch input:checked + .toggle-slider:before{transform:translateX(16px);}
   .doc-checklist-head{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.3px;
     display:flex;align-items:center;gap:10px;margin-bottom:12px;}
   .pill-select{appearance:none;-webkit-appearance:none;border:none;border-radius:20px;
@@ -1357,6 +1370,40 @@
   </div>
 </div>
 
+<div class="overlay" id="overlayBenefitSettings">
+  <div class="modal" style="width:560px;">
+    <h2 class="serif">Quản lý loại chế độ &amp; chính sách</h2>
+    <div class="modal-scroll">
+      <div class="hint-note">Bật loại chế độ nào thì loại đó sẽ xuất hiện trong danh sách "Loại chế độ" khi thêm chế độ cho giáo viên. Bạn có thể tự thêm loại mới bất cứ lúc nào, không cần chỉnh sửa code.</div>
+
+      <div class="panel-title" style="margin-bottom:10px;">Loại chế độ</div>
+      <div id="benefitTypesList" style="margin-bottom:10px;"></div>
+      <div class="quick-add" id="benefitTypeQuickAdd" style="margin-bottom:20px;">
+        <span style="font-size:20px;" id="bt_iconPreview">🎁</span>
+        <input type="text" id="bt_icon" placeholder="Icon (emoji)" style="width:80px;" maxlength="4">
+        <input type="text" id="bt_name" placeholder="Tên loại chế độ (VD: Ốm đau, tai nạn)" style="flex:1;min-width:160px;">
+        <input type="text" id="bt_desc" placeholder="Mô tả ngắn (tùy chọn)" style="flex:1;min-width:160px;">
+        <button type="button" class="btn-primary" id="benefitTypeAddBtn">+ Thêm loại mới</button>
+      </div>
+
+      <div class="panel-title" style="margin-bottom:10px;">Chính sách áp dụng</div>
+      <div id="benefitPoliciesList" style="margin-bottom:10px;"></div>
+      <div class="quick-add" id="benefitPolicyQuickAdd">
+        <select id="bp_typeId" style="min-width:150px;"></select>
+        <input type="text" id="bp_target" placeholder="Đối tượng áp dụng" style="flex:1;min-width:150px;">
+        <input type="text" id="bp_value" placeholder="Giá trị (VD: 300.000)" style="width:140px;">
+        <input type="text" id="bp_method" placeholder="Hình thức" style="flex:1;min-width:140px;">
+        <input type="text" id="bp_condition" placeholder="Điều kiện hưởng" style="flex:1;min-width:140px;">
+        <input type="date" id="bp_start" title="Ngày bắt đầu áp dụng">
+        <button type="button" class="btn-primary" id="benefitPolicyAddBtn">+ Thêm chính sách</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-primary" id="benefitSettingsCloseBtn">Xong</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="overlayBenefit">
   <div class="modal">
     <h2 class="serif" id="benefitModalTitle">Thêm chế độ</h2>
@@ -1750,7 +1797,8 @@ function renderBenefitBlock(t){
   return `
     <div class="benefit-block">
       <div class="benefit-head">🎁 CHẾ ĐỘ &amp; PHÚC LỢI
-        <button class="btn-ghost" style="margin-left:auto;padding:5px 12px;font-size:12px;" onclick="openBenefitForm('${t.id}')">+ Thêm chế độ</button>
+        <button class="icon-btn" style="margin-left:auto;" onclick="openBenefitSettings()" title="Quản lý loại chế độ & chính sách">⚙️</button>
+        <button class="btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="openBenefitForm('${t.id}')">+ Thêm chế độ</button>
       </div>
       ${reminderHtml}
       ${rows || (!reminderHtml ? `<div class="empty" style="padding:10px 0;">Chưa có chế độ nào phát sinh.</div>` : '')}
@@ -1856,6 +1904,119 @@ window.removeBenefitRecord = async function(id){
   render();
   await storSet(BENEFIT_RECORDS_KEY, benefitRecords);
   toast('Đã xóa.');
+};
+
+/* ---- Quản lý loại chế độ & chính sách (để người dùng tự mở rộng, không cần sửa code) ---- */
+window.openBenefitSettings = function(){
+  renderBenefitTypesList();
+  renderBenefitPoliciesList();
+  document.getElementById('overlayBenefitSettings').classList.add('show');
+};
+document.getElementById('benefitSettingsCloseBtn').onclick = ()=>{
+  document.getElementById('overlayBenefitSettings').classList.remove('show');
+  render();
+};
+document.getElementById('overlayBenefitSettings').addEventListener('click', (e)=>{
+  if(e.target.id === 'overlayBenefitSettings'){
+    document.getElementById('overlayBenefitSettings').classList.remove('show');
+    render();
+  }
+});
+document.getElementById('bt_icon').addEventListener('input', ()=>{
+  document.getElementById('bt_iconPreview').textContent = $('#bt_icon').value.trim() || '🎁';
+});
+
+function renderBenefitTypesList(){
+  const wrap = document.getElementById('benefitTypesList');
+  wrap.innerHTML = benefitTypes.map(bt => `
+    <div class="bsettings-row">
+      <label class="toggle-switch">
+        <input type="checkbox" ${bt.active?'checked':''} onchange="toggleBenefitTypeActive('${bt.id}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="bs-icon">${bt.icon}</span>
+      <span class="bs-name">${escapeHtml(bt.name)}</span>
+      <span class="bs-desc">${escapeHtml(bt.description||'')}</span>
+      ${bt.id!=='birthday' ? `<button class="icon-btn danger" onclick="removeBenefitType('${bt.id}')" title="Xóa">🗑</button>` : ''}
+    </div>
+  `).join('');
+  const bpSel = document.getElementById('bp_typeId');
+  bpSel.innerHTML = benefitTypes.map(bt=>`<option value="${bt.id}">${bt.icon} ${escapeHtml(bt.name)}</option>`).join('');
+}
+function renderBenefitPoliciesList(){
+  const wrap = document.getElementById('benefitPoliciesList');
+  if(benefitPolicies.length===0){ wrap.innerHTML = `<div class="empty" style="padding:8px 0;">Chưa có chính sách nào.</div>`; return; }
+  wrap.innerHTML = benefitPolicies.map(p => {
+    const type = benefitTypeById(p.benefitTypeId);
+    return `
+    <div class="bsettings-row">
+      <label class="toggle-switch">
+        <input type="checkbox" ${p.active?'checked':''} onchange="toggleBenefitPolicyActive('${p.id}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="bs-icon">${type?type.icon:'🎁'}</span>
+      <span class="bs-name">${type?escapeHtml(type.name):escapeHtml(p.benefitTypeId)}</span>
+      <span class="bs-meta">${escapeHtml(p.value)} đ · ${escapeHtml(p.method)} · từ ${fmtDate(p.startDate)}</span>
+      <button class="icon-btn danger" onclick="removeBenefitPolicy('${p.id}')" title="Xóa">🗑</button>
+    </div>`;
+  }).join('');
+}
+document.getElementById('benefitTypeAddBtn').addEventListener('click', async ()=>{
+  const name = $('#bt_name').value.trim();
+  if(!name){ toast('Vui lòng nhập tên loại chế độ.'); return; }
+  benefitTypes.push({
+    id: auid('bt'), name,
+    icon: $('#bt_icon').value.trim() || '🎁',
+    description: $('#bt_desc').value.trim(),
+    active: true
+  });
+  $('#bt_icon').value=''; $('#bt_name').value=''; $('#bt_desc').value='';
+  $('#bt_iconPreview').textContent = '🎁';
+  renderBenefitTypesList();
+  await storSet(BENEFIT_TYPES_KEY, benefitTypes);
+  toast('Đã thêm loại chế độ mới — giờ đã có thể chọn khi thêm chế độ cho giáo viên.');
+});
+window.toggleBenefitTypeActive = async function(id, checked){
+  const bt = benefitTypes.find(x=>x.id===id); if(!bt) return;
+  bt.active = checked;
+  await storSet(BENEFIT_TYPES_KEY, benefitTypes);
+  toast(checked ? `Đã bật "${bt.name}".` : `Đã tắt "${bt.name}".`);
+};
+window.removeBenefitType = async function(id){
+  if(!confirm('Xóa loại chế độ này? Các bản ghi/chính sách cũ thuộc loại này sẽ vẫn giữ nguyên nhưng không còn tên hiển thị.')) return;
+  benefitTypes = benefitTypes.filter(x=>x.id!==id);
+  renderBenefitTypesList();
+  await storSet(BENEFIT_TYPES_KEY, benefitTypes);
+  toast('Đã xóa loại chế độ.');
+};
+document.getElementById('benefitPolicyAddBtn').addEventListener('click', async ()=>{
+  const value = $('#bp_value').value.trim();
+  if(!value){ toast('Vui lòng nhập giá trị/quyền lợi.'); return; }
+  benefitPolicies.push({
+    id: auid('pol'), benefitTypeId: $('#bp_typeId').value,
+    target: $('#bp_target').value.trim() || 'Tất cả giáo viên',
+    value, method: $('#bp_method').value.trim(),
+    condition: $('#bp_condition').value.trim(),
+    startDate: $('#bp_start').value || new Date().toISOString().slice(0,10),
+    endDate: '', active: true
+  });
+  $('#bp_target').value=''; $('#bp_value').value=''; $('#bp_method').value='';
+  $('#bp_condition').value=''; $('#bp_start').value='';
+  renderBenefitPoliciesList();
+  await storSet(BENEFIT_POLICIES_KEY, benefitPolicies);
+  toast('Đã thêm chính sách mới.');
+});
+window.toggleBenefitPolicyActive = async function(id, checked){
+  const p = benefitPolicies.find(x=>x.id===id); if(!p) return;
+  p.active = checked;
+  await storSet(BENEFIT_POLICIES_KEY, benefitPolicies);
+};
+window.removeBenefitPolicy = async function(id){
+  if(!confirm('Xóa chính sách này? (Không ảnh hưởng các bản ghi đã lưu trước đó)')) return;
+  benefitPolicies = benefitPolicies.filter(x=>x.id!==id);
+  renderBenefitPoliciesList();
+  await storSet(BENEFIT_POLICIES_KEY, benefitPolicies);
+  toast('Đã xóa chính sách.');
 };
 
 function fmtDate(iso){
