@@ -338,6 +338,20 @@
   @media (max-width:900px){ .profile-panel{grid-template-columns:1fr 1fr;} }
 
   .doc-checklist-block{margin-top:18px;padding-top:16px;border-top:1px dashed var(--line);}
+
+  .benefit-block{margin-top:18px;padding-top:16px;border-top:1px dashed var(--line);}
+  .benefit-head{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;
+    color:var(--muted);letter-spacing:.3px;margin-bottom:12px;}
+  .benefit-reminder{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    background:var(--gold-soft);border:1px solid #ecd9ad;border-radius:8px;padding:10px 14px;
+    margin-bottom:12px;font-size:13px;color:#6b4d1d;}
+  .benefit-reminder.overdue{background:var(--red-soft);border-color:#f0c4bd;color:var(--red-deep);}
+  .benefit-reminder.today{background:var(--green-soft);border-color:#bfe3cd;color:var(--green);}
+  .benefit-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;
+    padding:10px 0;border-bottom:1px dashed var(--line);font-size:13.5px;}
+  .benefit-row:last-child{border-bottom:none;}
+  .benefit-icon{margin-right:4px;}
+  .benefit-year, .benefit-value{color:var(--muted);margin-left:8px;font-size:12.5px;}
   .doc-checklist-head{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.3px;
     display:flex;align-items:center;gap:10px;margin-bottom:12px;}
   .pill-select{appearance:none;-webkit-appearance:none;border:none;border-radius:20px;
@@ -1343,6 +1357,42 @@
   </div>
 </div>
 
+<div class="overlay" id="overlayBenefit">
+  <div class="modal">
+    <h2 class="serif" id="benefitModalTitle">Thêm chế độ</h2>
+    <form id="benefitForm">
+      <div class="modal-scroll">
+        <input type="hidden" id="bf_teacherId">
+        <input type="hidden" id="bf_recordId">
+        <div class="field"><label>Loại chế độ</label>
+          <select id="bf_typeId"></select>
+        </div>
+        <div class="field"><label>Năm</label><input type="number" id="bf_year"></div>
+        <div class="field"><label>Chính sách áp dụng</label>
+          <select id="bf_policyId"></select>
+        </div>
+        <div class="field"><label>Quyền lợi (giá trị)</label><input type="text" id="bf_value" placeholder="VD: 300.000"></div>
+        <div class="field"><label>Hình thức</label><input type="text" id="bf_method" placeholder="VD: Tiền mặt, Quà, Thiệp..."></div>
+        <div class="field"><label>Trạng thái</label>
+          <select id="bf_status">
+            <option>Chưa xử lý</option><option>Đã chuẩn bị</option><option>Đã trao</option>
+            <option>Không đủ điều kiện</option><option>Không phát sinh</option>
+          </select>
+        </div>
+        <div class="field"><label>Ngày thực hiện</label><input type="date" id="bf_doneDate"></div>
+        <div class="field"><label>Ghi chú</label><input type="text" id="bf_note"></div>
+        <label class="chip" style="margin-top:4px;">
+          <input type="checkbox" id="bf_logBudget"> Ghi khoản này vào Ngân sách
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="benefitCancelBtn">Hủy</button>
+        <button type="submit" class="btn-primary">Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="overlay" id="overlayImport">
   <div class="modal import-modal">
     <div class="import-head">
@@ -1610,6 +1660,204 @@ window.setDocStatus = async function(id, value){
   toast(`Đã đặt hồ sơ giấy tờ của "${t.name}" là "${t.doc}".`);
 };
 
+/* ================= 🎁 CHẾ ĐỘ & PHÚC LỢI (nền tảng mở rộng, Giai đoạn 1: Sinh nhật) ================= */
+const BENEFIT_TYPES_KEY = 'benefit-types';
+const BENEFIT_POLICIES_KEY = 'benefit-policies';
+const BENEFIT_RECORDS_KEY = 'benefit-records';
+let benefitTypes = [], benefitPolicies = [], benefitRecords = [];
+
+const seedBenefitTypes = [
+  {id:'birthday', name:'Sinh nhật', icon:'🎂', description:'Chúc mừng sinh nhật giáo viên', active:true},
+  {id:'wedding', name:'Cưới hỏi', icon:'🎉', description:'Chúc mừng cưới hỏi', active:false},
+  {id:'maternity', name:'Sinh con', icon:'👶', description:'Mừng sinh con', active:false},
+  {id:'visit', name:'Thăm hỏi ốm đau', icon:'💐', description:'Thăm hỏi khi ốm đau', active:false},
+  {id:'holiday', name:'Lễ/Tết', icon:'🎁', description:'Quà dịp Lễ/Tết', active:false},
+  {id:'reward', name:'Khen thưởng/ghi nhận', icon:'🏆', description:'Khen thưởng, ghi nhận thành tích', active:false}
+];
+const seedBenefitPolicies = [
+  {id:'pol_birthday_default', benefitTypeId:'birthday', target:'Tất cả giáo viên', value:'300.000', method:'Tiền mặt / Quà',
+    condition:'Đang công tác', startDate:'2026-01-01', endDate:'', active:true}
+];
+
+async function loadBenefitsModule(){
+  benefitTypes = await storGet(BENEFIT_TYPES_KEY, seedBenefitTypes);
+  benefitPolicies = await storGet(BENEFIT_POLICIES_KEY, seedBenefitPolicies);
+  benefitRecords = await storGet(BENEFIT_RECORDS_KEY, []);
+  render();
+}
+
+function activeBenefitTypes(){ return benefitTypes.filter(t=>t.active); }
+function benefitTypeById(id){ return benefitTypes.find(t=>t.id===id); }
+function policiesForType(typeId){ return benefitPolicies.filter(p=>p.benefitTypeId===typeId && p.active); }
+function findActivePolicy(typeId, dateStr){
+  const d = dateStr || new Date().toISOString().slice(0,10);
+  return benefitPolicies.find(p => p.benefitTypeId===typeId && p.active && p.startDate<=d && (!p.endDate || p.endDate>=d));
+}
+
+function computeBirthdayInfo(teacher){
+  if(!teacher.dob) return null;
+  const parts = teacher.dob.split('-');
+  if(parts.length!==3) return null;
+  const m = parseInt(parts[1],10), d = parseInt(parts[2],10);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const year = today.getFullYear();
+  const bday = new Date(year, m-1, d); bday.setHours(0,0,0,0);
+  const daysUntil = Math.round((bday - today) / 86400000);
+  const record = benefitRecords.find(r => r.teacherId===teacher.id && r.benefitTypeId==='birthday' && r.year===year);
+  const handledStatuses = ['Đã trao','Không đủ điều kiện','Không phát sinh'];
+  const handled = record && handledStatuses.includes(record.status);
+  let state = 'none';
+  if(handled) state = 'handled';
+  else if(daysUntil < 0) state = 'overdue';
+  else if(daysUntil === 0) state = 'today';
+  else if(daysUntil <= 14) state = 'upcoming';
+  return {year, daysUntil, record, state};
+}
+
+function renderBenefitBlock(t){
+  const records = benefitRecords.filter(r=>r.teacherId===t.id).sort((a,b)=> b.year-a.year);
+  const bdayInfo = computeBirthdayInfo(t);
+  let reminderHtml = '';
+  if(bdayInfo && ['upcoming','today','overdue'].includes(bdayInfo.state)){
+    const label = bdayInfo.state==='today' ? 'Hôm nay là sinh nhật!'
+      : bdayInfo.state==='overdue' ? `Đã quá ngày sinh nhật ${Math.abs(bdayInfo.daysUntil)} ngày — chưa xử lý`
+      : `Còn ${bdayInfo.daysUntil} ngày nữa tới sinh nhật`;
+    reminderHtml = `
+      <div class="benefit-reminder ${bdayInfo.state}">
+        <span>🎂 ${label} (${bdayInfo.year})</span>
+        <button class="btn-primary" style="padding:6px 12px;font-size:12px;" onclick="openBenefitForm('${t.id}','birthday',${bdayInfo.year})">+ Xử lý ngay</button>
+      </div>`;
+  }
+  const rows = records.map(r => {
+    const type = benefitTypeById(r.benefitTypeId);
+    const pillClass = r.status==='Đã trao' ? 'du' : (r.status==='Chưa xử lý' ? 'thieu' : 'status');
+    return `
+    <div class="benefit-row">
+      <div>
+        <span class="benefit-icon">${type?type.icon:'🎁'}</span>
+        <b>${type?escapeHtml(type.name):escapeHtml(r.benefitTypeId)}</b>
+        <span class="benefit-year">${r.year}</span>
+        ${r.value ? `<span class="benefit-value">${escapeHtml(r.value)} đ</span>` : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="pill ${pillClass}">${escapeHtml(r.status)}</span>
+        <button class="icon-btn" onclick="openBenefitForm('${t.id}', null, null, '${r.id}')" title="Sửa">✏️</button>
+        <button class="icon-btn danger" onclick="removeBenefitRecord('${r.id}')" title="Xóa">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="benefit-block">
+      <div class="benefit-head">🎁 CHẾ ĐỘ &amp; PHÚC LỢI
+        <button class="btn-ghost" style="margin-left:auto;padding:5px 12px;font-size:12px;" onclick="openBenefitForm('${t.id}')">+ Thêm chế độ</button>
+      </div>
+      ${reminderHtml}
+      ${rows || (!reminderHtml ? `<div class="empty" style="padding:10px 0;">Chưa có chế độ nào phát sinh.</div>` : '')}
+    </div>`;
+}
+
+function populateBenefitPolicySelect(typeId){
+  const sel = $('#bf_policyId');
+  const pols = policiesForType(typeId);
+  sel.innerHTML = `<option value="">-- Không áp dụng chính sách cụ thể --</option>` +
+    pols.map(p=>`<option value="${p.id}">${escapeHtml(p.value)} đ · ${escapeHtml(p.method)}</option>`).join('');
+}
+
+window.openBenefitForm = function(teacherId, typeId, year, recordId){
+  const t = teachers.find(x=>x.id===teacherId); if(!t) return;
+  $('#bf_teacherId').value = teacherId;
+  $('#bf_recordId').value = recordId || '';
+  const record = recordId ? benefitRecords.find(r=>r.id===recordId) : null;
+  const typeSel = $('#bf_typeId');
+  typeSel.innerHTML = activeBenefitTypes().map(bt=>`<option value="${bt.id}">${bt.icon} ${bt.name}</option>`).join('');
+  const chosenType = typeId || (record ? record.benefitTypeId : 'birthday');
+  typeSel.value = chosenType;
+  $('#bf_year').value = year || (record ? record.year : new Date().getFullYear());
+  populateBenefitPolicySelect(chosenType);
+  if(record){
+    document.getElementById('benefitModalTitle').textContent = 'Sửa chế độ';
+    $('#bf_policyId').value = record.policyId || '';
+    $('#bf_value').value = record.value || '';
+    $('#bf_method').value = record.method || '';
+    $('#bf_status').value = record.status || 'Chưa xử lý';
+    $('#bf_doneDate').value = record.doneDate || '';
+    $('#bf_note').value = record.note || '';
+  }else{
+    document.getElementById('benefitModalTitle').textContent = 'Thêm chế độ';
+    const policy = findActivePolicy(chosenType);
+    $('#bf_policyId').value = policy ? policy.id : '';
+    $('#bf_value').value = policy ? policy.value : '';
+    $('#bf_method').value = policy ? policy.method : '';
+    $('#bf_status').value = 'Chưa xử lý';
+    $('#bf_doneDate').value = '';
+    $('#bf_note').value = '';
+  }
+  $('#bf_logBudget').checked = false;
+  document.getElementById('overlayBenefit').classList.add('show');
+};
+document.getElementById('bf_typeId').addEventListener('change', ()=>{
+  populateBenefitPolicySelect($('#bf_typeId').value);
+  const policy = findActivePolicy($('#bf_typeId').value);
+  if(policy){ $('#bf_value').value = policy.value; $('#bf_method').value = policy.method; }
+});
+document.getElementById('bf_policyId').addEventListener('change', ()=>{
+  const p = benefitPolicies.find(x=>x.id===$('#bf_policyId').value);
+  if(p){ $('#bf_value').value = p.value; $('#bf_method').value = p.method; }
+});
+document.getElementById('benefitCancelBtn').onclick = ()=> document.getElementById('overlayBenefit').classList.remove('show');
+document.getElementById('overlayBenefit').addEventListener('click', (e)=>{
+  if(e.target.id === 'overlayBenefit') document.getElementById('overlayBenefit').classList.remove('show');
+});
+document.getElementById('benefitForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const teacherId = $('#bf_teacherId').value;
+  const recordId = $('#bf_recordId').value;
+  const t = teachers.find(x=>x.id===teacherId);
+  const data = {
+    teacherId, benefitTypeId: $('#bf_typeId').value,
+    policyId: $('#bf_policyId').value || null,
+    year: parseInt($('#bf_year').value,10) || new Date().getFullYear(),
+    value: $('#bf_value').value.trim(),
+    method: $('#bf_method').value.trim(),
+    status: $('#bf_status').value,
+    doneDate: $('#bf_doneDate').value,
+    note: $('#bf_note').value.trim()
+  };
+  let record;
+  if(recordId){
+    record = benefitRecords.find(r=>r.id===recordId);
+    if(record) Object.assign(record, data);
+  }else{
+    record = {id:auid('ben'), occurDate:'', doneBy:'', budgetTransactionId:null, ...data};
+    benefitRecords.push(record);
+  }
+  if($('#bf_logBudget').checked && data.value && record){
+    const type = benefitTypeById(data.benefitTypeId);
+    const amount = data.value.replace(/[^\d]/g,'');
+    const budgetItem = {id:auid('bg'), period:`Phúc lợi ${data.year}`,
+      desc:`${type?type.name:data.benefitTypeId} - ${t?t.name:''}`,
+      plan: amount, real: data.status==='Đã trao' ? amount : '', status: data.status==='Đã trao' ? 'Đã chi' : 'Chờ duyệt'};
+    if(typeof budgetItems !== 'undefined'){
+      budgetItems.push(budgetItem);
+      record.budgetTransactionId = budgetItem.id;
+      await storSet(BUDGET_KEY, budgetItems);
+      if(typeof renderBudget === 'function') renderBudget();
+    }
+  }
+  document.getElementById('overlayBenefit').classList.remove('show');
+  render();
+  await storSet(BENEFIT_RECORDS_KEY, benefitRecords);
+  toast('Đã lưu chế độ.');
+});
+window.removeBenefitRecord = async function(id){
+  if(!confirm('Xóa bản ghi chế độ này?')) return;
+  benefitRecords = benefitRecords.filter(r=>r.id!==id);
+  render();
+  await storSet(BENEFIT_RECORDS_KEY, benefitRecords);
+  toast('Đã xóa.');
+};
+
 function fmtDate(iso){
   if(!iso) return '—';
   const [y,m,d] = iso.split('-');
@@ -1709,6 +1957,7 @@ function render(){
           </div>
           <div class="hint-note" style="margin-top:10px;margin-bottom:0;">Tick từng mục để trạng thái tự cập nhật, hoặc chọn tay "Đủ / Thiếu" ở trên nếu muốn ghi đè trực tiếp.</div>
         </div>
+        ${renderBenefitBlock(t)}
       </td>
     </tr>` : ''}
   `).join('');
@@ -4177,6 +4426,7 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
 
 (async function initAll(){
   await loadTeachers();
+  await loadBenefitsModule();
   await loadAssistantsModule();
   await loadClassesModule();
   await loadTimetableModule();
