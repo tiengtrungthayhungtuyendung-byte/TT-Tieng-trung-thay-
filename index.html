@@ -2418,28 +2418,31 @@ const TASK_A_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi th�
 const TASK_B_ITEMS = ['Vệ sinh','Thống kê giảng dạy','Chữa BT','Điểm danh (onl và off)','Gửi khảo sát ẩn danh','Tải/gửi record','Gửi học liệu sau buổi học','Tắt toàn bộ thiết bị điện'];
 
 document.getElementById('taskImportBtn').addEventListener('click', ()=>{
-  const templateHeaders = ['Ngày','Cơ sở','Ca trực','Trợ giảng phụ trách trực',
-    ...TASK_A_ITEMS, ...TASK_B_ITEMS.map((label,i)=>`${i+1}. ${label}`)];
   openImportModal({
     title: 'Nhập báo cáo trực hàng ngày',
-    desc: `Tải lên file "Báo cáo tháng N" (.csv/.xlsx) với các cột <b>Ngày, Cơ sở, Ca trực, Trợ giảng phụ trách trực</b>, các mục checklist khai giảng, và các mục đánh số <b>1. Vệ sinh, 2. Thống kê giảng dạy...</b> Hệ thống tự đọc đúng số cột checklist đang dùng, kể cả khi bạn thêm/bớt mục.`,
-    headers: templateHeaders,
+    desc: `Tải lên file "Báo cáo tháng N" (.csv/.xlsx) với các cột <b>Ngày, Cơ sở, Ca trực, Trợ giảng phụ trách trực</b>. Hệ thống tự nhận diện <b>toàn bộ các cột checklist còn lại trong file</b> làm nhiệm vụ theo dõi — không giới hạn tên gọi, số lượng hay thứ tự, kể cả khi bạn thêm/bớt/đổi tên mục.`,
+    headers: ['Ngày','Cơ sở','Ca trực','Trợ giảng phụ trách trực','Vệ sinh','Điểm danh (onl và off)','...(các mục checklist khác của bạn)'],
     templateName: 'mau-bao-cao-truc-hang-ngay.csv',
     onRows: (rows, mode) => {
       if(mode === 'replace') sessionTasks.length = 0;
       let count = 0;
       rows.forEach(row => {
-        const name = pickField(row, 'Trợ giảng phụ trách trực','Trợ giảng phụ trách','Họ và tên','Tên');
+        const nameKey = findColumnKey(row, ['tro giang','phu trach'], ['ho va ten'], ['ten']);
+        const name = valAt(row, nameKey);
         if(!name) return;
-        const aChecklist = TASK_A_ITEMS.map(label => ({label, done: isYesValue(pickField(row, label))}));
-        const bChecklist = TASK_B_ITEMS.map((label, idx) => ({label, done: isYesValue(findNumberedColumnValue(row, idx+1))}));
+        const dateKey = findColumnKey(row, ['ngay']);
+        const branchKey = findColumnKey(row, ['co so']);
+        const shiftKey = findColumnKey(row, ['ca']);
+        const used = [nameKey, dateKey, branchKey, shiftKey].filter(Boolean);
+        const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
+        const rawDate = valAt(row, dateKey);
         sessionTasks.push({
           id: auid('tk'), name,
-          date: dobToIso(pickField(row,'Ngày')) || pickField(row,'Ngày'),
-          branch: pickField(row,'Cơ sở'),
-          shift: pickField(row,'Ca trực'),
-          tag: aChecklist.every(c=>c.done) ? null : 'Khai giảng còn thiếu',
-          a: aChecklist, b: bChecklist
+          date: dobToIso(rawDate) || rawDate,
+          branch: valAt(row, branchKey),
+          shift: valAt(row, shiftKey),
+          tag: (unnumbered.length && !unnumbered.every(c=>c.done)) ? 'Khai giảng còn thiếu' : null,
+          a: unnumbered, b: numbered
         });
         count++;
       });
@@ -2470,6 +2473,7 @@ function renderKbgList(){
           <span class="kbg-tag ${k.type==='Bế giảng'?'be':''}">${k.type}</span>
           <div class="code">${escapeHtml(k.code)}</div>
           <div class="meta">${k.week?`Tuần ${escapeHtml(k.week)} · `:''}${k.date} · ${escapeHtml(k.branch)}${k.shift?` · ${escapeHtml(k.shift)}`:''} · ${escapeHtml(k.assistant)} · Sĩ số ${escapeHtml(k.siso||'—')}</div>
+          ${k.note ? `<div class="meta" style="font-style:italic;">Ghi chú: ${escapeHtml(k.note)}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pct-pill ${pillClass}">${pillLabel}</span>
@@ -2525,28 +2529,38 @@ document.getElementById('kbgAddBtn').onclick = () => document.getElementById('ov
 const KBG_CHECKLIST_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Nhận đủ số lượng sách khai giảng','Tham gia nhóm lớp zalo'];
 
 document.getElementById('kbgImportBtn').addEventListener('click', ()=>{
-  const templateHeaders = ['Tuần','Ngày khai giảng','Cơ sở','Tên lớp','Ca trực','Trợ giảng phụ trách',
-    ...KBG_CHECKLIST_ITEMS.map((label,i)=>`${i+1}. ${label}`), 'Sĩ số tham gia'];
   openImportModal({
     title: 'Nhập theo dõi lớp khai giảng',
-    desc: `Tải lên file "Theo dõi lớp khai giảng" (.csv/.xlsx) với các cột <b>Tuần, Ngày khai giảng, Cơ sở, Tên lớp, Ca trực, Trợ giảng phụ trách</b>, các mục checklist đánh số, và <b>Sĩ số tham gia</b>.`,
-    headers: templateHeaders,
+    desc: `Tải lên file "Theo dõi lớp khai giảng" (.csv/.xlsx) với các cột <b>Tuần, Ngày khai giảng, Cơ sở, Tên lớp, Ca trực, Trợ giảng phụ trách, Sĩ số tham gia, Ghi chú</b>. Hệ thống tự nhận diện <b>toàn bộ các cột checklist còn lại trong file</b> (đánh số hoặc không đánh số) — không giới hạn tên gọi, số lượng hay thứ tự.`,
+    headers: ['Tuần','Ngày khai giảng','Cơ sở','Tên lớp','Ca trực','Trợ giảng phụ trách','Sĩ số tham gia','Ghi chú','...(các mục checklist khác của bạn)'],
     templateName: 'mau-theo-doi-khai-giang.csv',
     onRows: (rows, mode) => {
       if(mode === 'replace') kbgItems.length = 0;
       let count = 0;
       rows.forEach(row => {
-        const code = pickField(row, 'Tên lớp','Mã lớp');
+        const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+        const code = valAt(row, codeKey);
         if(!code) return;
-        const checklist = KBG_CHECKLIST_ITEMS.map((label, idx) => ({label, done: isYesValue(findNumberedColumnValue(row, idx+1))}));
+        const weekKey = findColumnKey(row, ['tuan']);
+        const dateKey = findColumnKey(row, ['ngay']);
+        const branchKey = findColumnKey(row, ['co so']);
+        const shiftKey = findColumnKey(row, ['ca truc'], ['ca']);
+        const assistantKey = findColumnKey(row, ['tro giang'], ['phu trach']);
+        const sisoKey = findColumnKey(row, ['si so']);
+        const noteKey = findColumnKey(row, ['ghi chu']);
+        const used = [codeKey, weekKey, dateKey, branchKey, shiftKey, assistantKey, sisoKey, noteKey].filter(Boolean);
+        const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
+        const checklist = [...numbered, ...unnumbered];
+        const rawDate = valAt(row, dateKey);
         kbgItems.push({
           id: auid('k'), type: 'Khai giảng', code,
-          week: pickField(row,'Tuần'),
-          date: dobToIso(pickField(row,'Ngày khai giảng')) || pickField(row,'Ngày khai giảng'),
-          branch: pickField(row,'Cơ sở'),
-          shift: pickField(row,'Ca trực'),
-          assistant: pickField(row,'Trợ giảng phụ trách','Trợ giảng phụ trách trực'),
-          siso: pickField(row,'Sĩ số tham gia','Sĩ số'),
+          week: valAt(row, weekKey),
+          date: dobToIso(rawDate) || rawDate,
+          branch: valAt(row, branchKey),
+          shift: valAt(row, shiftKey),
+          assistant: valAt(row, assistantKey),
+          siso: valAt(row, sisoKey),
+          note: valAt(row, noteKey),
           checklist
         });
         count++;
@@ -3060,6 +3074,38 @@ document.querySelectorAll('.filter-pill').forEach(p=>{
   });
 });
 renderFeedback();
+
+function findColumnKey(row, ...keywordGroups){
+  const keys = Object.keys(row);
+  for(const group of keywordGroups){
+    const normGroup = group.map(normKey);
+    const found = keys.find(k => normGroup.every(g => normKey(k).includes(g)));
+    if(found) return found;
+  }
+  return null;
+}
+function valAt(row, key){ return key ? String(row[key]==null?'':row[key]).trim() : ''; }
+function isBlankHeader(k){
+  const s = String(k||'').trim();
+  return s === '' || /^__empty/i.test(s) || /^column\d*$/i.test(s) || /^unnamed/i.test(s);
+}
+function buildChecklistFromRemaining(row, usedKeys){
+  const keys = Object.keys(row).filter(k => !usedKeys.includes(k) && !isBlankHeader(k) && String(row[k]).trim() !== 'undefined');
+  const numbered = [], unnumbered = [];
+  keys.forEach(k => {
+    const m = k.trim().match(/^(\d+)\s*[\.\)]\s*(.*)$/);
+    if(m){
+      numbered.push({num: parseInt(m[1],10), label: m[2].trim() || k.trim(), key:k});
+    }else{
+      unnumbered.push({label: k.trim(), key:k});
+    }
+  });
+  numbered.sort((a,b)=>a.num-b.num);
+  return {
+    numbered: numbered.map(n => ({label:n.label, done:isYesValue(row[n.key])})),
+    unnumbered: unnumbered.map(n => ({label:n.label, done:isYesValue(row[n.key])}))
+  };
+}
 
 function pickFieldContains(row, ...keywordGroups){
   const entries = Object.keys(row).map(k => ({key:k, norm: normKey(k)}));
