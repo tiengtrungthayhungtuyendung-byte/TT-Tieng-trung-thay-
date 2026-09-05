@@ -1110,7 +1110,7 @@
       </div>
       <div class="quick-add" id="staffQuickAdd2" style="display:none;">
         <input type="date" id="st_qdob">
-        <select id="st_qformat"><option>Toàn thời gian</option><option>Bán thời gian</option></select>
+        <select id="st_qformat"><option>Full time</option><option>Part time</option></select>
         <select id="st_qstatus"><option>Đang làm</option><option>Tạm nghỉ</option><option>Đã nghỉ</option></select>
         <input type="text" id="st_qsalary" placeholder="Lương cơ bản (đ)" style="flex:1;min-width:150px;">
         <button class="btn-primary" id="staffQuickSaveBtn">✓ Lưu</button>
@@ -1326,7 +1326,7 @@
       <div class="field"><label>Ngày sinh</label><input type="date" id="st_dob"></div>
       <div class="field"><label>Lương cơ bản (đ)</label><input type="text" id="st_salary"></div>
       <div class="field"><label>Hình thức</label>
-        <select id="st_format"><option>Toàn thời gian</option><option>Bán thời gian</option></select>
+        <select id="st_format"><option>Full time</option><option>Part time</option></select>
       </div>
       <div class="field"><label>Trạng thái</label>
         <select id="st_status"><option>Đang làm</option><option>Tạm nghỉ</option><option>Đã nghỉ</option></select>
@@ -3811,10 +3811,15 @@ function renderStaffFilterOptions(){
   sel.innerHTML = `<option value="">Tất cả</option>` + depts.map(d=>`<option>${escapeHtml(d)}</option>`).join('');
   if(depts.includes(current)) sel.value = current;
 }
+function staffFormatLabel(v){
+  if(v === 'Toàn thời gian') return 'Full time';
+  if(v === 'Bán thời gian') return 'Part time';
+  return v || '—';
+}
 function renderStaffStats(){
   const total = staff.length;
   const active = staff.filter(s=>s.status==='Đang làm').length;
-  const partTime = staff.filter(s=>s.format==='Bán thời gian').length;
+  const partTime = staff.filter(s=>s.format==='Part time' || s.format==='Bán thời gian').length;
   document.getElementById('staffStatLine').innerHTML =
     `<b>${total}</b> nhân viên · <b>${active}</b> đang làm · <b>${partTime}</b> bán thời gian`;
 }
@@ -3838,7 +3843,7 @@ function renderStaffTable(){
       <td class="name-cell">${escapeHtml(s.name)}</td>
       <td>${escapeHtml(s.dept||'—')}</td>
       <td>${escapeHtml(s.phone||'—')}</td>
-      <td>${escapeHtml(s.format||'—')}</td>
+      <td>${staffFormatLabel(s.format)}</td>
       <td><span class="pill status">${s.status}</span></td>
       <td>
         <div class="row-actions">
@@ -3878,7 +3883,7 @@ window.openEditStaff = function(id){
   $('#st_name').value = s.name; $('#st_dept').value = s.dept||'';
   $('#st_phone').value = s.phone||''; $('#st_email').value = s.email||'';
   $('#st_dob').value = s.dob||''; $('#st_salary').value = s.salary||'';
-  $('#st_format').value = s.format||'Toàn thời gian';
+  $('#st_format').value = staffFormatLabel(s.format) === 'Part time' ? 'Part time' : 'Full time';
   $('#st_status').value = s.status;
   document.getElementById('overlayStaff').classList.add('show');
 };
@@ -3963,7 +3968,7 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
           id: auid('sf'), name,
           dept: pickField(row,'Bộ phận','Department'),
           phone: pickField(row,'SĐT','Số điện thoại'),
-          format: pickField(row,'Hình thức') === 'Bán thời gian' ? 'Bán thời gian' : 'Toàn thời gian',
+          format: pickField(row,'Hình thức') === 'Part time' ? 'Part time' : 'Full time',
           status: pickField(row,'Trạng thái') || 'Đang làm'
         });
         count++;
