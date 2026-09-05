@@ -3061,6 +3061,19 @@ document.querySelectorAll('.filter-pill').forEach(p=>{
 });
 renderFeedback();
 
+function pickFieldContains(row, ...keywordGroups){
+  const entries = Object.keys(row).map(k => ({key:k, norm: normKey(k)}));
+  for(const group of keywordGroups){
+    const normGroup = group.map(normKey);
+    const found = entries.find(e => normGroup.every(g => e.norm.includes(g)));
+    if(found){
+      const v = row[found.key];
+      if(v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+  }
+  return '';
+}
+
 function guessTeacherFromText(text){
   if(!text) return '';
   const VOWELS = 'A-ZÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬĐÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ';
@@ -3084,12 +3097,16 @@ document.getElementById('feedbackImportBtn').addEventListener('click', ()=>{
         feedbackData.forEach(f => { agg[f.name] = {pos:f.pos, neg:f.neg, responses:f.count, quotes:(f.quotes||[]).slice()}; });
       }
       rows.forEach(row => {
-        const posText = pickField(row, 'Bạn thích những điểm gì ở giáo viên?','Bạn thích những điểm gì','Điểm hài lòng','Bạn thích điểm gì');
-        const negText = pickField(row, 'Điểm CHƯA hài lòng (nếu có)','Điểm CHƯA hài lòng','Điểm chưa hài lòng','Góp ý','Điểm cần cải thiện');
+        const posText = pickFieldContains(row, ['thích','điểm'], ['hài lòng','thích']);
+        const negText = pickFieldContains(row, ['chưa','hài lòng'], ['góp ý'], ['cải thiện']);
         let teachers = [
-          pickField(row,'Giáo viên phụ trách 1','Giáo viên phụ trách','Giáo viên'),
-          pickField(row,'Giáo viên phụ trách 2')
+          pickFieldContains(row, ['giáo','viên','1']),
+          pickFieldContains(row, ['giáo','viên','2'])
         ].filter(Boolean);
+        if(teachers.length === 0){
+          const fallback = pickField(row,'Giáo viên phụ trách','Giáo viên');
+          if(fallback) teachers = [fallback];
+        }
         if(teachers.length === 0){
           const guess = guessTeacherFromText(posText) || guessTeacherFromText(negText);
           if(guess) teachers = [guess];
