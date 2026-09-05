@@ -4022,7 +4022,7 @@ function renderStaffTable(){
   }
   const rows = list.map(s => `
     <tr>
-      <td class="name-cell">${escapeHtml(s.name)}</td>
+      <td class="name-cell">${isBirthdayThisOrNextMonth(s.dob) ? `<span class="bday-name-pill" title="Sinh nhật tháng này/tháng tới">${escapeHtml(s.name)} 🎂</span>` : escapeHtml(s.name)}</td>
       <td>${escapeHtml(s.dept||'—')}</td>
       <td>${escapeHtml(s.phone||'—')}</td>
       <td>${staffFormatLabel(s.format)}</td>
