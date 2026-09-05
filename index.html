@@ -794,7 +794,11 @@
       </div>
 
       <div class="subview" id="class-sub-list">
-        <div class="toolbar-right"><button class="btn-primary" id="classAddBtn">+ Thêm lớp học</button></div>
+        <div class="toolbar-right">
+          <button class="btn-ghost" id="classExportBtn">Xuất Excel</button>
+          <button class="btn-ghost" id="classImportBtn">Nhập từ Excel/CSV</button>
+          <button class="btn-primary" id="classAddBtn">+ Thêm lớp học</button>
+        </div>
         <div class="card"><div id="classTableWrap"></div></div>
       </div>
 
@@ -3345,6 +3349,41 @@ window.removeClass = async function(id){
   toast('Đã xóa lớp học.');
 };
 document.getElementById('classAddBtn').onclick = () => document.getElementById('overlayClass').classList.add('show');
+
+document.getElementById('classExportBtn').addEventListener('click', ()=>{
+  const headers = ['Tên lớp','Cơ sở','Cấp độ','GV phụ trách','Sĩ số','Trạng thái'];
+  const rows = classes.map(c => [c.name, c.branch||'', c.level||'', c.teacher||'', c.siso||'', c.status]);
+  downloadXlsx('danh-sach-lop-hoc.xlsx', headers, rows);
+});
+document.getElementById('classImportBtn').addEventListener('click', ()=>{
+  openImportModal({
+    title: 'Nhập danh sách lớp học',
+    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách lớp học. Hệ thống tự nhận diện các cột: <b>Tên lớp, Cơ sở, Cấp độ, GV phụ trách, Sĩ số, Trạng thái</b>.',
+    headers: ['Tên lớp','Cơ sở','Cấp độ','GV phụ trách','Sĩ số','Trạng thái'],
+    templateName: 'mau-danh-sach-lop-hoc.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') classes.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const name = pickField(row, 'Tên lớp','Ten lop','Mã lớp','Lớp');
+        if(!name) return;
+        const teacher = pickField(row, 'GV phụ trách','Giáo viên phụ trách','Giáo viên');
+        classes.push({
+          id: auid('c'), name,
+          branch: pickField(row,'Cơ sở'),
+          level: pickField(row,'Cấp độ'),
+          teacher: (teacher && teacher !== 'Chưa gán') ? teacher : '',
+          siso: pickField(row,'Sĩ số'),
+          status: pickField(row,'Trạng thái') || 'Đang tuyển'
+        });
+        count++;
+      });
+      renderClassesAll();
+      storSet(CLASS_KEY, classes);
+      return count;
+    }
+  });
+});
 document.getElementById('classCancelBtn').onclick = () => document.getElementById('overlayClass').classList.remove('show');
 document.getElementById('classForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
