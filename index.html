@@ -621,7 +621,7 @@
             <option value="miss">Còn thiếu nhiệm vụ</option>
             <option value="done">Đã hoàn tất</option>
           </select>
-          <button class="btn-ghost">Nhập báo cáo trực hàng ngày</button>
+          <button class="btn-ghost" id="taskImportBtn">Nhập báo cáo trực hàng ngày</button>
         </div>
         <div id="taskList"></div>
       </div>
@@ -629,7 +629,7 @@
       <!-- --- Sub view: Khai giảng & Bế giảng --- -->
       <div class="subview" id="asst-sub-kbg">
         <div class="toolbar-right">
-          <button class="btn-ghost">Nhập theo dõi khai giảng</button>
+          <button class="btn-ghost" id="kbgImportBtn">Nhập theo dõi khai giảng</button>
           <button class="btn-primary" id="kbgAddBtn">+ Thêm bế giảng thủ công</button>
         </div>
         <div id="kbgList"></div>
@@ -1737,6 +1737,16 @@ function pickField(row, ...names){
   for(const n of names){ const v = map[normKey(n)]; if(v !== undefined && v !== null && String(v).trim()!=='') return String(v).trim(); }
   return '';
 }
+const IMPORT_YES_VALUES = ['có','đủ','x','1','yes','true','có nộp','hoàn tất','done'].map(normKey);
+function isYesValue(v){ return IMPORT_YES_VALUES.includes(normKey(v)); }
+function findNumberedColumnValue(row, num){
+  let val = '';
+  Object.keys(row).forEach(k => {
+    const m = k.trim().match(/^(\d+)\s*[\.\)]/);
+    if(m && parseInt(m[1],10) === num) val = row[k];
+  });
+  return val;
+}
 function dobToIso(s){
   if(!s) return '';
   s = s.trim();
@@ -2404,6 +2414,43 @@ window.removeTask = async function(id){
 };
 document.getElementById('taskFilter').addEventListener('change', renderTaskList);
 
+const TASK_A_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Tham gia nhóm lớp zalo','Gửi học liệu trước buổi học'];
+const TASK_B_ITEMS = ['Vệ sinh','Thống kê giảng dạy','Chữa BT','Điểm danh (onl và off)','Gửi khảo sát ẩn danh','Tải/gửi record','Gửi học liệu sau buổi học','Tắt toàn bộ thiết bị điện'];
+
+document.getElementById('taskImportBtn').addEventListener('click', ()=>{
+  const templateHeaders = ['Ngày','Cơ sở','Ca trực','Trợ giảng phụ trách trực',
+    ...TASK_A_ITEMS, ...TASK_B_ITEMS.map((label,i)=>`${i+1}. ${label}`)];
+  openImportModal({
+    title: 'Nhập báo cáo trực hàng ngày',
+    desc: `Tải lên file "Báo cáo tháng N" (.csv/.xlsx) với các cột <b>Ngày, Cơ sở, Ca trực, Trợ giảng phụ trách trực</b>, các mục checklist khai giảng, và các mục đánh số <b>1. Vệ sinh, 2. Thống kê giảng dạy...</b> Hệ thống tự đọc đúng số cột checklist đang dùng, kể cả khi bạn thêm/bớt mục.`,
+    headers: templateHeaders,
+    templateName: 'mau-bao-cao-truc-hang-ngay.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') sessionTasks.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const name = pickField(row, 'Trợ giảng phụ trách trực','Trợ giảng phụ trách','Họ và tên','Tên');
+        if(!name) return;
+        const aChecklist = TASK_A_ITEMS.map(label => ({label, done: isYesValue(pickField(row, label))}));
+        const bChecklist = TASK_B_ITEMS.map((label, idx) => ({label, done: isYesValue(findNumberedColumnValue(row, idx+1))}));
+        sessionTasks.push({
+          id: auid('tk'), name,
+          date: dobToIso(pickField(row,'Ngày')) || pickField(row,'Ngày'),
+          branch: pickField(row,'Cơ sở'),
+          shift: pickField(row,'Ca trực'),
+          tag: aChecklist.every(c=>c.done) ? null : 'Khai giảng còn thiếu',
+          a: aChecklist, b: bChecklist
+        });
+        count++;
+      });
+      renderTaskList(); renderAsstStatHeader();
+      storSet(TASKS_KEY, sessionTasks);
+      return count;
+    }
+  });
+});
+
+
 /* ---- Khai giảng & Bế giảng ---- */
 function kbgPercent(k){
   if(!k.checklist || k.checklist.length===0) return null;
@@ -2422,7 +2469,7 @@ function renderKbgList(){
         <div>
           <span class="kbg-tag ${k.type==='Bế giảng'?'be':''}">${k.type}</span>
           <div class="code">${escapeHtml(k.code)}</div>
-          <div class="meta">${k.date} · ${escapeHtml(k.branch)} · ${escapeHtml(k.assistant)} · Sĩ số ${escapeHtml(k.siso||'—')}</div>
+          <div class="meta">${k.week?`Tuần ${escapeHtml(k.week)} · `:''}${k.date} · ${escapeHtml(k.branch)}${k.shift?` · ${escapeHtml(k.shift)}`:''} · ${escapeHtml(k.assistant)} · Sĩ số ${escapeHtml(k.siso||'—')}</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pct-pill ${pillClass}">${pillLabel}</span>
@@ -2474,6 +2521,43 @@ function renderShiftSummary(){ renderBranchSummaryTable('shiftSummary'); }
 function renderRewardBranchSummary(){ renderBranchSummaryTable('rewardBranchSummary'); }
 
 document.getElementById('kbgAddBtn').onclick = () => document.getElementById('overlayKbg').classList.add('show');
+
+const KBG_CHECKLIST_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Nhận đủ số lượng sách khai giảng','Tham gia nhóm lớp zalo'];
+
+document.getElementById('kbgImportBtn').addEventListener('click', ()=>{
+  const templateHeaders = ['Tuần','Ngày khai giảng','Cơ sở','Tên lớp','Ca trực','Trợ giảng phụ trách',
+    ...KBG_CHECKLIST_ITEMS.map((label,i)=>`${i+1}. ${label}`), 'Sĩ số tham gia'];
+  openImportModal({
+    title: 'Nhập theo dõi lớp khai giảng',
+    desc: `Tải lên file "Theo dõi lớp khai giảng" (.csv/.xlsx) với các cột <b>Tuần, Ngày khai giảng, Cơ sở, Tên lớp, Ca trực, Trợ giảng phụ trách</b>, các mục checklist đánh số, và <b>Sĩ số tham gia</b>.`,
+    headers: templateHeaders,
+    templateName: 'mau-theo-doi-khai-giang.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') kbgItems.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const code = pickField(row, 'Tên lớp','Mã lớp');
+        if(!code) return;
+        const checklist = KBG_CHECKLIST_ITEMS.map((label, idx) => ({label, done: isYesValue(findNumberedColumnValue(row, idx+1))}));
+        kbgItems.push({
+          id: auid('k'), type: 'Khai giảng', code,
+          week: pickField(row,'Tuần'),
+          date: dobToIso(pickField(row,'Ngày khai giảng')) || pickField(row,'Ngày khai giảng'),
+          branch: pickField(row,'Cơ sở'),
+          shift: pickField(row,'Ca trực'),
+          assistant: pickField(row,'Trợ giảng phụ trách','Trợ giảng phụ trách trực'),
+          siso: pickField(row,'Sĩ số tham gia','Sĩ số'),
+          checklist
+        });
+        count++;
+      });
+      renderKbgList(); renderKbgSummary(); renderAsstStatHeader();
+      storSet(KBG_KEY, kbgItems);
+      return count;
+    }
+  });
+});
+
 document.getElementById('kbgCancelBtn').onclick = () => document.getElementById('overlayKbg').classList.remove('show');
 document.getElementById('kbgForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
