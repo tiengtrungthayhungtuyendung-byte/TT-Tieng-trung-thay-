@@ -2361,7 +2361,7 @@ function renderTaskList(){
     <div class="task-card">
       <div class="task-head">
         <div><div class="who">${escapeHtml(t.name)}</div>
-          <div class="meta">${t.date} · ${escapeHtml(t.branch)} · ${escapeHtml(t.shift)}</div></div>
+          <div class="meta">${t.week?`${escapeHtml(t.week)} · `:''}${t.className?`${escapeHtml(t.className)} · `:''}${t.date} · ${escapeHtml(t.branch)} · ${escapeHtml(t.shift)}</div></div>
         <div class="right">
           ${t.tag ? `<span class="pct-pill miss">${t.tag}</span>` : ''}
           <span class="pct-pill ${pillClass}">${pct}%</span>
@@ -2433,11 +2433,17 @@ document.getElementById('taskImportBtn').addEventListener('click', ()=>{
         const dateKey = findColumnKey(row, ['ngay']);
         const branchKey = findColumnKey(row, ['co so']);
         const shiftKey = findColumnKey(row, ['ca']);
-        const used = [nameKey, dateKey, branchKey, shiftKey].filter(Boolean);
+        const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+        const weekKey = findColumnKey(row, ['tuan']);
+        const sisoKey = findColumnKey(row, ['si so']);
+        const noteKey = findColumnKey(row, ['ghi chu']);
+        const used = [nameKey, dateKey, branchKey, shiftKey, classKey, weekKey, sisoKey, noteKey].filter(Boolean);
         const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
         const rawDate = valAt(row, dateKey);
         sessionTasks.push({
           id: auid('tk'), name,
+          className: valAt(row, classKey),
+          week: valAt(row, weekKey),
           date: dobToIso(rawDate) || rawDate,
           branch: valAt(row, branchKey),
           shift: valAt(row, shiftKey),
@@ -2472,7 +2478,7 @@ function renderKbgList(){
         <div>
           <span class="kbg-tag ${k.type==='Bế giảng'?'be':''}">${k.type}</span>
           <div class="code">${escapeHtml(k.code)}</div>
-          <div class="meta">${k.week?`Tuần ${escapeHtml(k.week)} · `:''}${k.date} · ${escapeHtml(k.branch)}${k.shift?` · ${escapeHtml(k.shift)}`:''} · ${escapeHtml(k.assistant)} · Sĩ số ${escapeHtml(k.siso||'—')}</div>
+          <div class="meta">${k.week?`${escapeHtml(k.week)} · `:''}${k.date} · ${escapeHtml(k.branch)}${k.shift?` · ${escapeHtml(k.shift)}`:''} · ${escapeHtml(k.assistant)} · Sĩ số ${escapeHtml(k.siso||'—')}</div>
           ${k.note ? `<div class="meta" style="font-style:italic;">Ghi chú: ${escapeHtml(k.note)}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
