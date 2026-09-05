@@ -1090,6 +1090,33 @@
           <button class="btn-primary" id="staffAddBtn">+ Thêm nhân viên</button>
         </div>
       </div>
+
+      <div class="quick-add" id="staffQuickAdd" style="display:none;">
+        <input type="text" id="st_qname" placeholder="Họ và tên" style="flex:1.3;min-width:160px;">
+        <select id="st_qdept">
+          <option>Tư vấn tuyển sinh</option>
+          <option>Kế toán</option>
+          <option>Nhân sự</option>
+          <option>Marketing</option>
+          <option>Lễ tân</option>
+          <option>Giáo vụ</option>
+          <option>Chăm sóc khách hàng</option>
+          <option>IT</option>
+          <option>Vận hành</option>
+          <option>Khác</option>
+        </select>
+        <input type="text" id="st_qphone" placeholder="SĐT" style="width:130px;">
+        <input type="text" id="st_qemail" placeholder="Email" style="flex:1;min-width:160px;">
+      </div>
+      <div class="quick-add" id="staffQuickAdd2" style="display:none;">
+        <input type="date" id="st_qdob">
+        <select id="st_qformat"><option>Toàn thời gian</option><option>Bán thời gian</option></select>
+        <select id="st_qstatus"><option>Đang làm</option><option>Tạm nghỉ</option><option>Đã nghỉ</option></select>
+        <input type="text" id="st_qsalary" placeholder="Lương cơ bản (đ)" style="flex:1;min-width:150px;">
+        <button class="btn-primary" id="staffQuickSaveBtn">✓ Lưu</button>
+        <button class="btn-ghost" id="staffQuickCancelBtn">✕</button>
+      </div>
+
       <div class="toolbar">
         <input type="text" id="staffSearch" placeholder="Tìm nhân viên…" style="max-width:260px;">
         <select id="staffDeptFilter"><option value="">Tất cả</option></select>
@@ -1295,6 +1322,9 @@
       <div class="field"><label>Họ và tên</label><input type="text" id="st_name" required></div>
       <div class="field"><label>Bộ phận</label><input type="text" id="st_dept" placeholder="VD: Kế toán, Marketing, Lễ tân…"></div>
       <div class="field"><label>Số điện thoại</label><input type="text" id="st_phone"></div>
+      <div class="field"><label>Email</label><input type="text" id="st_email"></div>
+      <div class="field"><label>Ngày sinh</label><input type="date" id="st_dob"></div>
+      <div class="field"><label>Lương cơ bản (đ)</label><input type="text" id="st_salary"></div>
       <div class="field"><label>Hình thức</label>
         <select id="st_format"><option>Toàn thời gian</option><option>Bán thời gian</option></select>
       </div>
@@ -3730,11 +3760,27 @@ function renderStaffTable(){
         <div class="row-actions">
           <button class="icon-btn" onclick="openEditStaff('${s.id}')" title="Sửa">✏️</button>
           <button class="icon-btn danger" onclick="removeStaff('${s.id}')" title="Xóa">🗑</button>
+          <button class="icon-btn expand-toggle-btn" onclick="toggleStaffRow('${s.id}')" title="Xem hồ sơ đầy đủ">${s._open ? '▲' : '▼'}</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>
+    ${s._open ? `
+    <tr class="profile-row">
+      <td colspan="6">
+        <div class="profile-panel">
+          <div><span class="lbl">Email</span><span class="val">${escapeHtml(s.email||'—')}</span></div>
+          <div><span class="lbl">Ngày sinh</span><span class="val">${fmtDate(s.dob)}</span></div>
+          <div><span class="lbl">Lương cơ bản</span><span class="val">${s.salary ? escapeHtml(s.salary)+' đ' : '—'}</span></div>
+        </div>
+      </td>
+    </tr>` : ''}`).join('');
   wrap.innerHTML = `<table><thead>${headerRow}</thead><tbody>${rows}</tbody></table>`;
 }
+window.toggleStaffRow = function(id){
+  const s = staff.find(x=>x.id===id); if(!s) return;
+  s._open = !s._open;
+  renderStaffTable();
+};
 function openStaffAdd(){
   editingStaffId = null;
   document.getElementById('staffModalTitle').textContent = 'Thêm nhân viên';
@@ -3746,7 +3792,9 @@ window.openEditStaff = function(id){
   editingStaffId = id;
   document.getElementById('staffModalTitle').textContent = 'Sửa thông tin nhân viên';
   $('#st_name').value = s.name; $('#st_dept').value = s.dept||'';
-  $('#st_phone').value = s.phone||''; $('#st_format').value = s.format||'Toàn thời gian';
+  $('#st_phone').value = s.phone||''; $('#st_email').value = s.email||'';
+  $('#st_dob').value = s.dob||''; $('#st_salary').value = s.salary||'';
+  $('#st_format').value = s.format||'Toàn thời gian';
   $('#st_status').value = s.status;
   document.getElementById('overlayStaff').classList.add('show');
 };
@@ -3758,11 +3806,43 @@ window.removeStaff = async function(id){
   await storSet(STAFF_KEY, staff);
   toast('Đã xóa nhân viên.');
 };
-document.getElementById('staffAddBtn').onclick = openStaffAdd;
+
+/* ---- Dòng nhập nhanh "Thêm nhân viên" ---- */
+function toggleStaffQuickAdd(show){
+  const r1 = document.getElementById('staffQuickAdd');
+  const r2 = document.getElementById('staffQuickAdd2');
+  const on = show !== undefined ? show : r1.style.display === 'none';
+  r1.style.display = on ? 'flex' : 'none';
+  r2.style.display = on ? 'flex' : 'none';
+  if(on) document.getElementById('st_qname').focus();
+}
+document.getElementById('staffAddBtn').onclick = () => toggleStaffQuickAdd();
+document.getElementById('staffQuickCancelBtn').addEventListener('click', ()=> toggleStaffQuickAdd(false));
+document.getElementById('staffQuickSaveBtn').addEventListener('click', async ()=>{
+  const name = $('#st_qname').value.trim();
+  if(!name){ toast('Vui lòng nhập họ và tên.'); return; }
+  staff.push({
+    id: auid('sf'), name,
+    dept: $('#st_qdept').value,
+    phone: $('#st_qphone').value.trim(),
+    email: $('#st_qemail').value.trim(),
+    dob: $('#st_qdob').value,
+    format: $('#st_qformat').value,
+    status: $('#st_qstatus').value,
+    salary: $('#st_qsalary').value.trim()
+  });
+  ['st_qname','st_qphone','st_qemail','st_qdob','st_qsalary'].forEach(id=>$('#'+id).value='');
+  toggleStaffQuickAdd(false);
+  renderStaffAll();
+  await storSet(STAFF_KEY, staff);
+  toast('Đã thêm nhân viên.');
+});
+
 document.getElementById('staffCancelBtn').onclick = () => document.getElementById('overlayStaff').classList.remove('show');
 document.getElementById('staffForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const data = {name:$('#st_name').value.trim(), dept:$('#st_dept').value.trim(), phone:$('#st_phone').value.trim(),
+    email:$('#st_email').value.trim(), dob:$('#st_dob').value, salary:$('#st_salary').value.trim(),
     format:$('#st_format').value, status:$('#st_status').value};
   if(!data.name) return;
   if(editingStaffId){
