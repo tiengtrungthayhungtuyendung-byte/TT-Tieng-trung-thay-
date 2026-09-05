@@ -1141,8 +1141,16 @@
       <div class="field"><label>Họ và tên</label><input type="text" id="a_name" required></div>
       <div class="field"><label>Cơ sở</label><input type="text" id="a_branch" placeholder="VD: Nguyễn Trãi"></div>
       <div class="field"><label>Số điện thoại</label><input type="text" id="a_phone"></div>
+      <div class="field"><label>Ngày sinh</label><input type="date" id="a_dob"></div>
+      <div class="field"><label>Quê quán</label><input type="text" id="a_hometown"></div>
+      <div class="field"><label>Trường đang học</label><input type="text" id="a_school"></div>
+      <div class="field"><label>HSK</label>
+        <select id="a_hsk"><option>Chưa có HSK</option><option>HSK3</option><option>HSK4</option><option>HSK5</option><option>HSK6</option></select>
+      </div>
+      <div class="field"><label>CCCD</label><input type="text" id="a_cccd"></div>
       <div class="field"><label>Ca làm</label><input type="text" id="a_shift" placeholder="VD: TỐI 2-4-6"></div>
       <div class="field"><label>Mức lương</label><input type="text" id="a_salary" placeholder="VD: 70.000 đ/ca"></div>
+      <div class="field"><label>Số ca / giờ trực</label><input type="text" id="a_shiftcount" placeholder="VD: 12 ca"></div>
       <div class="field"><label>Trạng thái</label>
         <select id="a_status"><option>Đang làm</option><option>Tạm nghỉ</option><option>Đã nghỉ</option></select>
       </div></div>
@@ -2167,15 +2175,28 @@ function renderAsstTable(){
       <td>${escapeHtml(a.phone||'—')}</td>
       <td>${escapeHtml(a.shift||'—')}</td>
       <td>${escapeHtml(a.salary||'—')}</td>
-      <td>–</td>
+      <td><input type="text" value="${escapeHtml(a.shiftCount||'')}" placeholder="—" style="width:90px;padding:5px 7px;border-radius:6px;border:1px solid var(--line);font-size:12.5px;" onchange="updateAsstShiftCount('${a.id}', this.value)"></td>
       <td><span class="pill status">${a.status}</span></td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" onclick="openEditAsst('${a.id}')" title="Sửa">✏️</button>
           <button class="icon-btn danger" onclick="removeAsst('${a.id}')" title="Xóa">🗑</button>
+          <button class="icon-btn expand-toggle-btn" onclick="toggleAsstRow('${a.id}')" title="Xem hồ sơ đầy đủ">${a._open ? '▲' : '▼'}</button>
         </div>
       </td>
     </tr>
+    ${a._open ? `
+    <tr class="profile-row">
+      <td colspan="8">
+        <div class="profile-panel">
+          <div><span class="lbl">Ngày sinh</span><span class="val">${fmtDate(a.dob)}</span></div>
+          <div><span class="lbl">Quê quán</span><span class="val">${escapeHtml(a.hometown||'—')}</span></div>
+          <div><span class="lbl">Trường đang học</span><span class="val">${escapeHtml(a.school||'—')}</span></div>
+          <div><span class="lbl">HSK</span><span class="val">${escapeHtml(a.hsk||'Chưa có HSK')}</span></div>
+          <div><span class="lbl">CCCD</span><span class="val">${escapeHtml(a.cccd||'—')}</span></div>
+        </div>
+      </td>
+    </tr>` : ''}
   `).join('');
   wrap.innerHTML = `
     <table>
@@ -2185,6 +2206,17 @@ function renderAsstTable(){
       <tbody>${rows}</tbody>
     </table>`;
 }
+window.toggleAsstRow = function(id){
+  const a = assistants.find(x=>x.id===id); if(!a) return;
+  a._open = !a._open;
+  renderAsstTable();
+};
+window.updateAsstShiftCount = async function(id, value){
+  const a = assistants.find(x=>x.id===id); if(!a) return;
+  a.shiftCount = value.trim();
+  await storSet(ASST_KEY, assistants);
+  toast('Đã cập nhật số ca / giờ trực.');
+};
 function openAsstAdd(){
   editingAsstId = null;
   document.getElementById('asstModalTitle').textContent = 'Thêm trợ giảng';
@@ -2197,6 +2229,9 @@ window.openEditAsst = function(id){
   document.getElementById('asstModalTitle').textContent = 'Sửa thông tin trợ giảng';
   $('#a_name').value = a.name; $('#a_branch').value = a.branch||'';
   $('#a_phone').value = a.phone||''; $('#a_shift').value = a.shift||'';
+  $('#a_dob').value = a.dob||''; $('#a_hometown').value = a.hometown||'';
+  $('#a_school').value = a.school||''; $('#a_hsk').value = a.hsk||'Chưa có HSK';
+  $('#a_cccd').value = a.cccd||''; $('#a_shiftcount').value = a.shiftCount||'';
   $('#a_salary').value = a.salary||''; $('#a_status').value = a.status;
   document.getElementById('overlayAsst').classList.add('show');
 };
@@ -2213,6 +2248,8 @@ document.getElementById('asstCancelBtn').onclick = () => document.getElementById
 document.getElementById('asstForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const data = {name:$('#a_name').value.trim(), branch:$('#a_branch').value.trim(), phone:$('#a_phone').value.trim(),
+    dob:$('#a_dob').value, hometown:$('#a_hometown').value.trim(), school:$('#a_school').value.trim(),
+    hsk:$('#a_hsk').value, cccd:$('#a_cccd').value.trim(), shiftCount:$('#a_shiftcount').value.trim(),
     shift:$('#a_shift').value.trim(), salary:$('#a_salary').value.trim(), status:$('#a_status').value};
   if(!data.name) return;
   if(editingAsstId){
@@ -3794,6 +3831,4 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
 })();
 </script>
 </body>
-
-<!-- test-deploy-check: 2026-09-05T04:25:51.364443 -->
 </html>
