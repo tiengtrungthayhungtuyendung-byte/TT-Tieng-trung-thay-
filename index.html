@@ -1110,6 +1110,8 @@
       </div>
       <div class="quick-add" id="staffQuickAdd2" style="display:none;">
         <input type="date" id="st_qdob">
+        <input type="text" id="st_qhometown" placeholder="Quê quán" style="flex:1;min-width:150px;">
+        <input type="text" id="st_qcccd" placeholder="CCCD" style="width:150px;">
         <select id="st_qformat"><option>Full time</option><option>Part time</option></select>
         <select id="st_qstatus"><option>Đang làm</option><option>Tạm nghỉ</option><option>Đã nghỉ</option></select>
         <input type="text" id="st_qsalary" placeholder="Lương cơ bản (đ)" style="flex:1;min-width:150px;">
@@ -1324,6 +1326,8 @@
       <div class="field"><label>Số điện thoại</label><input type="text" id="st_phone"></div>
       <div class="field"><label>Email</label><input type="text" id="st_email"></div>
       <div class="field"><label>Ngày sinh</label><input type="date" id="st_dob"></div>
+      <div class="field"><label>Quê quán</label><input type="text" id="st_hometown"></div>
+      <div class="field"><label>CCCD</label><input type="text" id="st_cccd"></div>
       <div class="field"><label>Lương cơ bản (đ)</label><input type="text" id="st_salary"></div>
       <div class="field"><label>Hình thức</label>
         <select id="st_format"><option>Full time</option><option>Part time</option></select>
@@ -1412,6 +1416,7 @@ const NAV_ITEMS = [
   {icon:'trend', label:'Báo cáo & Xu hướng', view:'reports'},
   {icon:'ai', label:'Trợ lý AI', view:'ai'},
   {icon:'teachers', label:'Giáo viên', view:'teachers'},
+  {icon:'teachers', label:'Nhân viên', view:'staff'},
   {icon:'students', label:'Học viên & Học phí', view:'students'},
   {icon:'classes', label:'Lớp học & Điểm danh', view:'classes'},
   {icon:'recruit', label:'Tuyển sinh', view:'leads'},
@@ -1423,8 +1428,7 @@ const NAV_ITEMS = [
   {icon:'hours', label:'Đổi giờ dạy', view:'changehours'},
   {icon:'budget', label:'Ngân sách', view:'budget'},
   {icon:'heart', label:'Ghi nhận & thăm hỏi', view:'care'},
-  {icon:'broadcast', label:'Nội dung truyền thông', view:'content'},
-  {icon:'teachers', label:'Nhân viên', view:'staff'}
+  {icon:'broadcast', label:'Nội dung truyền thông', view:'content'}
 ];
 const navListEl = document.getElementById('navList');
 navListEl.innerHTML = NAV_ITEMS.map((item,i) => `
@@ -3099,11 +3103,12 @@ function buildChecklistFromRemaining(row, usedKeys){
   const keys = Object.keys(row).filter(k => !usedKeys.includes(k) && !isBlankHeader(k) && String(row[k]).trim() !== 'undefined');
   const numbered = [], unnumbered = [];
   keys.forEach(k => {
-    const m = k.trim().match(/^(\d+)\s*[\.\)]\s*(.*)$/);
+    const clean = k.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const m = clean.match(/^(\d+)\s*[\.\)]\s*([\s\S]*)$/);
     if(m){
-      numbered.push({num: parseInt(m[1],10), label: m[2].trim() || k.trim(), key:k});
+      numbered.push({num: parseInt(m[1],10), label: m[2].trim() || clean, key:k});
     }else{
-      unnumbered.push({label: k.trim(), key:k});
+      unnumbered.push({label: clean, key:k});
     }
   });
   numbered.sort((a,b)=>a.num-b.num);
@@ -4036,6 +4041,8 @@ function renderStaffTable(){
         <div class="profile-panel">
           <div><span class="lbl">Email</span><span class="val">${escapeHtml(s.email||'—')}</span></div>
           <div><span class="lbl">Ngày sinh</span><span class="val">${fmtDate(s.dob)}</span></div>
+          <div><span class="lbl">Quê quán</span><span class="val">${escapeHtml(s.hometown||'—')}</span></div>
+          <div><span class="lbl">CCCD</span><span class="val">${escapeHtml(s.cccd||'—')}</span></div>
           <div><span class="lbl">Lương cơ bản</span><span class="val">${s.salary ? escapeHtml(s.salary)+' đ' : '—'}</span></div>
         </div>
       </td>
@@ -4059,7 +4066,8 @@ window.openEditStaff = function(id){
   document.getElementById('staffModalTitle').textContent = 'Sửa thông tin nhân viên';
   $('#st_name').value = s.name; $('#st_dept').value = s.dept||'';
   $('#st_phone').value = s.phone||''; $('#st_email').value = s.email||'';
-  $('#st_dob').value = s.dob||''; $('#st_salary').value = s.salary||'';
+  $('#st_dob').value = s.dob||''; $('#st_hometown').value = s.hometown||'';
+  $('#st_cccd').value = s.cccd||''; $('#st_salary').value = s.salary||'';
   $('#st_format').value = staffFormatLabel(s.format) === 'Part time' ? 'Part time' : 'Full time';
   $('#st_status').value = s.status;
   document.getElementById('overlayStaff').classList.add('show');
@@ -4093,11 +4101,13 @@ document.getElementById('staffQuickSaveBtn').addEventListener('click', async ()=
     phone: $('#st_qphone').value.trim(),
     email: $('#st_qemail').value.trim(),
     dob: $('#st_qdob').value,
+    hometown: $('#st_qhometown').value.trim(),
+    cccd: $('#st_qcccd').value.trim(),
     format: $('#st_qformat').value,
     status: $('#st_qstatus').value,
     salary: $('#st_qsalary').value.trim()
   });
-  ['st_qname','st_qphone','st_qemail','st_qdob','st_qsalary'].forEach(id=>$('#'+id).value='');
+  ['st_qname','st_qphone','st_qemail','st_qdob','st_qhometown','st_qcccd','st_qsalary'].forEach(id=>$('#'+id).value='');
   toggleStaffQuickAdd(false);
   renderStaffAll();
   await storSet(STAFF_KEY, staff);
@@ -4108,7 +4118,8 @@ document.getElementById('staffCancelBtn').onclick = () => document.getElementByI
 document.getElementById('staffForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const data = {name:$('#st_name').value.trim(), dept:$('#st_dept').value.trim(), phone:$('#st_phone').value.trim(),
-    email:$('#st_email').value.trim(), dob:$('#st_dob').value, salary:$('#st_salary').value.trim(),
+    email:$('#st_email').value.trim(), dob:$('#st_dob').value, hometown:$('#st_hometown').value.trim(),
+    cccd:$('#st_cccd').value.trim(), salary:$('#st_salary').value.trim(),
     format:$('#st_format').value, status:$('#st_status').value};
   if(!data.name) return;
   if(editingStaffId){
@@ -4125,15 +4136,15 @@ document.getElementById('staffForm').addEventListener('submit', async (e)=>{
 document.getElementById('staffSearch').addEventListener('input', renderStaffTable);
 document.getElementById('staffDeptFilter').addEventListener('change', renderStaffTable);
 document.getElementById('staffExportBtn').addEventListener('click', ()=>{
-  const headers = ['Họ và tên','Bộ phận','SĐT','Hình thức','Trạng thái'];
-  const rows = staff.map(s => [s.name, s.dept||'', s.phone||'', s.format||'', s.status]);
+  const headers = ['Họ và tên','Bộ phận','SĐT','Email','Ngày sinh','Quê quán','CCCD','Lương cơ bản','Hình thức','Trạng thái'];
+  const rows = staff.map(s => [s.name, s.dept||'', s.phone||'', s.email||'', fmtDate(s.dob), s.hometown||'', s.cccd||'', s.salary||'', staffFormatLabel(s.format), s.status]);
   downloadXlsx('nhan-vien.xlsx', headers, rows);
 });
 document.getElementById('staffImportBtn').addEventListener('click', ()=>{
   openImportModal({
     title: 'Nhập danh sách nhân viên',
-    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách nhân viên. Hệ thống tự nhận diện các cột: <b>Họ và tên, Bộ phận, SĐT, Hình thức, Trạng thái</b>.',
-    headers: ['Họ và tên','Bộ phận','SĐT','Hình thức','Trạng thái'],
+    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách nhân viên. Hệ thống tự nhận diện các cột: <b>Họ và tên, Bộ phận, SĐT, Email, Ngày sinh, Quê quán, CCCD, Lương cơ bản, Hình thức, Trạng thái</b>.',
+    headers: ['Họ và tên','Bộ phận','SĐT','Email','Ngày sinh','Quê quán','CCCD','Lương cơ bản','Hình thức','Trạng thái'],
     templateName: 'mau-danh-sach-nhan-vien.csv',
     onRows: (rows, mode) => {
       if(mode === 'replace') staff.length = 0;
@@ -4145,6 +4156,11 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
           id: auid('sf'), name,
           dept: pickField(row,'Bộ phận','Department'),
           phone: pickField(row,'SĐT','Số điện thoại'),
+          email: pickField(row,'Email'),
+          dob: dobToIso(pickField(row,'Ngày sinh')),
+          hometown: pickField(row,'Quê quán'),
+          cccd: pickField(row,'CCCD'),
+          salary: pickField(row,'Lương cơ bản'),
           format: pickField(row,'Hình thức') === 'Part time' ? 'Part time' : 'Full time',
           status: pickField(row,'Trạng thái') || 'Đang làm'
         });
