@@ -820,7 +820,7 @@
         </div>
         <div class="actions">
           <button class="btn-ghost">Xuất Excel</button>
-          <button class="btn-primary">↑ Nhập lịch giảng dạy hiện tại</button>
+          <button class="btn-primary" id="scheduleImportBtn">↑ Nhập lịch giảng dạy hiện tại</button>
         </div>
       </div>
       <div class="stat-grid" id="ttStatGrid" style="grid-template-columns:repeat(4,1fr);"></div>
@@ -3069,16 +3069,34 @@ renderFeedback();
 
 /* ================= XẾP LỊCH GIẢNG DẠY ================= */
 const NEED_KEY = 'schedule-needs';
+const SCHEDULE_ROWS_KEY = 'weekly-schedule-rows';
 let scheduleNeeds = [];
-const hoursByTeacher = [
-  {short:'C.VÂN', hoursWeek:2.0, hoursMonth:9},
-  {short:'C.HUYỀN', hoursWeek:4.0, hoursMonth:17},
-  {short:'C.HOÀI', hoursWeek:6.0, hoursMonth:26},
-  {short:'C.LINH', hoursWeek:6.0, hoursMonth:26}
-];
+let scheduleRows = []; // [{className, session, mon,tue,wed,thu,fri,sat,sun}]
+let hoursByTeacher = [];
+const WEEKDAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
+const WEEKDAY_LABELS = ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'];
+
+function computeHoursByTeacher(){
+  const counts = {};
+  scheduleRows.forEach(row => {
+    WEEKDAY_KEYS.forEach(dk => {
+      const name = (row[dk] || '').trim();
+      if(name) counts[name] = (counts[name] || 0) + 1;
+    });
+  });
+  hoursByTeacher = Object.keys(counts).sort().map(short => {
+    const sessionsWeek = counts[short];
+    const hoursWeek = sessionsWeek * 2; // giả định mỗi buổi 2 giờ
+    const hoursMonth = Math.round(hoursWeek * 4.33);
+    return {short, hoursWeek, hoursMonth};
+  });
+}
+
 const seedNeeds = [];
 async function loadTimetableModule(){
   scheduleNeeds = await storGet(NEED_KEY, seedNeeds);
+  scheduleRows = await storGet(SCHEDULE_ROWS_KEY, []);
+  computeHoursByTeacher();
   renderTimetable();
 }
 function renderTimetable(){
@@ -3145,6 +3163,39 @@ document.getElementById('needForm').addEventListener('submit', async (e)=>{
   renderTimetable();
   await storSet(NEED_KEY, scheduleNeeds);
   toast('Đã thêm buổi cần xếp.');
+});
+
+document.getElementById('scheduleImportBtn').addEventListener('click', ()=>{
+  openImportModal({
+    title: 'Nhập lịch giảng dạy hiện tại',
+    desc: `Tải lên file .csv hoặc .xlsx có các cột <b>LỚP, CA, THỨ 2...CHỦ NHẬT</b> (mỗi ô Thứ ghi tên GV dạy hôm đó, dạng "C.Tên" hoặc "T.Tên"). Hệ thống sẽ tự suy ra lịch bận của từng giáo viên — không cần hỏi lại từng người.`,
+    headers: ['LỚP','CA','THỨ 2','THỨ 3','THỨ 4','THỨ 5','THỨ 6','THỨ 7','CHỦ NHẬT'],
+    templateName: 'mau-lich-giang-day.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') scheduleRows.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const className = pickField(row, 'LỚP','Lớp','Mã lớp');
+        const session = pickField(row, 'CA','Ca');
+        const entry = {className, session};
+        let hasAny = false;
+        WEEKDAY_KEYS.forEach((dk, i) => {
+          const v = pickField(row, WEEKDAY_LABELS[i]);
+          entry[dk] = v;
+          if(v) hasAny = true;
+        });
+        if(!className && !session && !hasAny) return;
+        scheduleRows.push(entry);
+        count++;
+      });
+      computeHoursByTeacher();
+      renderTimetable();
+      renderSalary();
+      renderOverview();
+      storSet(SCHEDULE_ROWS_KEY, scheduleRows);
+      return count;
+    }
+  });
 });
 
 /* ================= GHI NHẬN & THĂM HỎI ================= */
