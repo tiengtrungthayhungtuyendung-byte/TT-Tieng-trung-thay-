@@ -799,7 +799,7 @@
           <h1 class="serif">Phản hồi học viên</h1>
           <div class="stat-line" id="fbStatLine">Đang tải…</div>
         </div>
-        <div class="actions"><button class="btn-primary">⇄ Liên kết khảo sát (Nhập CSV/Excel)</button></div>
+        <div class="actions"><button class="btn-primary" id="feedbackImportBtn">⇄ Liên kết khảo sát (Nhập CSV/Excel)</button></div>
       </div>
       <div class="filter-row">
         <span class="lbl">Lọc theo phân loại:</span>
@@ -3006,18 +3006,12 @@ document.querySelector('#classTabs .subtab[data-ctab="list"]').classList.add('ac
 document.getElementById('class-sub-list').classList.add('active');
 
 /* ================= PHẢN HỒI HỌC VIÊN ================= */
-const feedbackData = [
-  {id:'f1', name:'Lê Minh Hoài Linh', count:2, pos:2, neg:0, cat:'khen', catLabel:'Đề xuất khen thưởng',
-    note:'Ghi nhận Giáo viên tiêu biểu tháng, gửi thư khen từ Ban Lãnh đạo hoặc quà tri ân.',
-    quotes:['"Cô Linh dạy rất tận tâm, giải thích dễ hiểu."','"Con rất thích giờ học của cô, mong được học tiếp."'],
-    actionable:true},
-  {id:'f2', name:'Chu Thị Hoài', count:2, pos:2, neg:1, cat:'ondinh', catLabel:'Ổn định',
-    note:'Chưa cần hành động đặc biệt — tiếp tục theo dõi định kỳ.',
-    quotes:['"Cô dạy ổn, đúng giờ."','"Mong cô giao thêm bài tập về nhà."'], actionable:false},
-  {id:'f3', name:'Nguyễn Thanh Huyền', count:2, pos:1, neg:2, cat:'ondinh', catLabel:'Ổn định',
-    note:'Chưa cần hành động đặc biệt — tiếp tục theo dõi định kỳ.',
-    quotes:['"Đôi khi vào lớp hơi muộn."','"Bài giảng dễ hiểu."'], actionable:false}
-];
+const FEEDBACK_KEY = 'student-feedback';
+let feedbackData = [];
+async function loadFeedbackModule(){
+  feedbackData = await storGet(FEEDBACK_KEY, []);
+  renderFeedback();
+}
 let fbFilter = '';
 function renderFeedback(){
   const total = feedbackData.reduce((s,f)=>s+f.count,0);
@@ -3066,6 +3060,69 @@ document.querySelectorAll('.filter-pill').forEach(p=>{
   });
 });
 renderFeedback();
+
+function guessTeacherFromText(text){
+  if(!text) return '';
+  const VOWELS = 'A-ZÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬĐÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ';
+  const lower = 'a-zà-ỹáàảãạăằắẳẵặâầấẩẫậđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ';
+  const re = new RegExp(`(thầy|cô)\\s+([${VOWELS}][${lower}]*)`, 'i');
+  const m = text.match(re);
+  if(!m) return '';
+  const honor = m[1].toLowerCase() === 'thầy' ? 'Thầy' : 'Cô';
+  return `${honor} ${m[2]}`;
+}
+
+document.getElementById('feedbackImportBtn').addEventListener('click', ()=>{
+  openImportModal({
+    title: 'Liên kết khảo sát phản hồi học viên',
+    desc: `Tải lên file .csv hoặc .xlsx xuất từ Google Form/Sheet khảo sát học viên. Hệ thống tự nhận diện cột <b>Lớp, "Bạn thích những điểm gì...", "Điểm CHƯA hài lòng...", Giáo viên phụ trách 1/2</b>. Nếu file không có cột giáo viên, hệ thống sẽ thử suy đoán từ nội dung góp ý (vd. "thầy Tuấn", "cô Ngọc").`,
+    headers: ['Lớp','Bạn thích những điểm gì ở giáo viên?','Điểm CHƯA hài lòng (nếu có)','Giáo viên phụ trách 1','Giáo viên phụ trách 2'],
+    templateName: 'mau-khao-sat-phan-hoi-hoc-vien.csv',
+    onRows: (rows, mode) => {
+      const agg = {};
+      if(mode !== 'replace'){
+        feedbackData.forEach(f => { agg[f.name] = {pos:f.pos, neg:f.neg, responses:f.count, quotes:(f.quotes||[]).slice()}; });
+      }
+      rows.forEach(row => {
+        const posText = pickField(row, 'Bạn thích những điểm gì ở giáo viên?','Bạn thích những điểm gì','Điểm hài lòng','Bạn thích điểm gì');
+        const negText = pickField(row, 'Điểm CHƯA hài lòng (nếu có)','Điểm CHƯA hài lòng','Điểm chưa hài lòng','Góp ý','Điểm cần cải thiện');
+        let teachers = [
+          pickField(row,'Giáo viên phụ trách 1','Giáo viên phụ trách','Giáo viên'),
+          pickField(row,'Giáo viên phụ trách 2')
+        ].filter(Boolean);
+        if(teachers.length === 0){
+          const guess = guessTeacherFromText(posText) || guessTeacherFromText(negText);
+          if(guess) teachers = [guess];
+        }
+        if(teachers.length === 0) return;
+        teachers.forEach(t => {
+          if(!agg[t]) agg[t] = {pos:0, neg:0, responses:0, quotes:[]};
+          agg[t].responses++;
+          if(posText){ agg[t].pos++; if(agg[t].quotes.length<4) agg[t].quotes.push(`"${posText.slice(0,140)}"`); }
+          if(negText){ agg[t].neg++; if(agg[t].quotes.length<4) agg[t].quotes.push(`"${negText.slice(0,140)}"`); }
+        });
+      });
+      feedbackData = Object.keys(agg).map(name => {
+        const {pos, neg, responses, quotes} = agg[name];
+        let cat, catLabel, note, actionable;
+        if(neg === 0 && pos > 0){
+          cat='khen'; catLabel='Đề xuất khen thưởng';
+          note='Ghi nhận Giáo viên tiêu biểu tháng, gửi thư khen từ Ban Lãnh đạo hoặc quà tri ân.'; actionable=true;
+        }else if(neg > pos){
+          cat='hotro'; catLabel='Cần hỗ trợ';
+          note='Cần trao đổi trực tiếp và hỗ trợ thêm — theo dõi sát trong thời gian tới.'; actionable=false;
+        }else{
+          cat='ondinh'; catLabel='Ổn định';
+          note='Chưa cần hành động đặc biệt — tiếp tục theo dõi định kỳ.'; actionable=false;
+        }
+        return {id:auid('fb'), name, count:responses, pos, neg, cat, catLabel, note, quotes, actionable};
+      });
+      renderFeedback();
+      storSet(FEEDBACK_KEY, feedbackData);
+      return Object.keys(agg).length;
+    }
+  });
+});
 
 /* ================= XẾP LỊCH GIẢNG DẠY ================= */
 const NEED_KEY = 'schedule-needs';
@@ -4047,6 +4104,7 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
   await loadLeadsModule();
   await loadStudentsModule();
   await loadStaffModule();
+  await loadFeedbackModule();
   renderOverview();
 })();
 </script>
