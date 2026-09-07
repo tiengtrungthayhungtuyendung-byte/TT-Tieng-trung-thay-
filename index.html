@@ -1575,7 +1575,7 @@ function renderAlertChips(){
     {icon:'wallet', num: (typeof budgetItems!=='undefined'? budgetItems.filter(b=>b.status==='Chờ duyệt').length : 0), label:'Ngân sách chờ duyệt'},
     {icon:'ban', num: teachers.filter(t=>t.doc==='Thiếu').length, label:'GV còn thiếu giấy tờ hồ sơ'},
     {icon:'schedule', num: (typeof hoursByTeacher!=='undefined'? hoursByTeacher.filter(t=>t.hoursMonth < 0.9*40).length : 0), label:'GV thiếu giờ dạy tháng này'},
-    {icon:'overview', num: (typeof scheduleNeeds!=='undefined'? scheduleNeeds.reduce((s,n)=>s+n.days.length,0) : 0), label:'Buổi dạy chưa xếp GV'},
+    {icon:'overview', num: (typeof scheduleNeeds!=='undefined'? scheduleNeeds.reduce((s,n)=>s+asArray(n.days).length,0) : 0), label:'Buổi dạy chưa xếp GV'},
     {icon:'teachers', num: (typeof sessionTasks!=='undefined'? sessionTasks.filter(t=>t.tag).length : 0), label:'Báo cáo trợ giảng chưa hoàn tất'},
     {icon:'award', num: (typeof kbgItems!=='undefined'? kbgItems.filter(k=>k.checklist.length===0 || k.checklist.some(c=>!c.done)).length : 0), label:'Khai/bế giảng chưa báo cáo đủ'},
     {icon:'salary', num: (typeof enrolledStudents!=='undefined'? enrolledStudents.filter(s=>(+s.feeTotal||0)>(+s.feePaid||0)).length : 0), label:'Khoản học phí quá hạn'},
@@ -2763,7 +2763,7 @@ document.getElementById('asstExportBtn').addEventListener('click', ()=>{
 
 /* ---- Nhiệm vụ theo buổi ---- */
 function taskProgress(t){
-  const all = [...t.a, ...t.b];
+  const all = [...asArray(t.a), ...asArray(t.b)];
   const done = all.filter(x=>x.done).length;
   return all.length ? Math.round(done/all.length*100) : 0;
 }
@@ -2797,12 +2797,12 @@ function renderTaskList(){
       <div class="checklist-wrap">
         <div>
           <div class="checklist-col-title">RIÊNG LỚP KHAI GIẢNG</div>
-          ${t.a.map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','a',${i})">
+          ${asArray(t.a).map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','a',${i})">
             <span class="mark">${c.done?'✓':''}</span>${escapeHtml(c.label)}</div>`).join('')}
         </div>
         <div>
           <div class="checklist-col-title">NHIỆM VỤ TRONG CA TRỰC</div>
-          ${t.b.map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','b',${i})">
+          ${asArray(t.b).map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','b',${i})">
             <span class="mark">${c.done?'✓':''}</span>${escapeHtml(c.label)}</div>`).join('')}
         </div>
       </div>` : ''}
@@ -3294,13 +3294,19 @@ function renderClassesAll(){
   renderAttendPanel();
 }
 
+function asArray(v){
+  if(Array.isArray(v)) return v;
+  if(v && typeof v === 'object') return Object.values(v);
+  return [];
+}
+
 function classAttendanceRate(classId){
   const recs = attendanceRecords.filter(r=>r.classId===classId);
   if(recs.length===0) return 100;
   const students = classStudents.filter(s=>s.classId===classId);
   if(students.length===0) return 100;
   let totalSlots=0, totalPresent=0;
-  recs.forEach(r=>{ totalSlots += students.length; totalPresent += r.present.length; });
+  recs.forEach(r=>{ totalSlots += students.length; totalPresent += asArray(r.present).length; });
   return totalSlots ? Math.round(totalPresent/totalSlots*100) : 100;
 }
 
@@ -3473,7 +3479,7 @@ function renderAttendPanel(){
   const students = classStudents.filter(s=>s.classId===classId);
   const date = document.getElementById('attendDate').value;
   const existing = attendanceRecords.find(r=>r.classId===classId && r.date===date);
-  const presentSet = new Set(existing ? existing.present : students.map(s=>s.id));
+  const presentSet = new Set(existing ? asArray(existing.present) : students.map(s=>s.id));
 
   const listEl = document.getElementById('attendStudentList');
   listEl.innerHTML = students.length ? students.map(s => `
@@ -3488,9 +3494,9 @@ function renderAttendPanel(){
   const warnStudents = classStudents.filter(s=>s.classId===classId).map(s=>{
     const recs = attendanceRecords.filter(r=>r.classId===classId).sort((a,b)=>a.date<b.date?1:-1);
     const total = recs.length;
-    const present = recs.filter(r=>r.present.includes(s.id)).length;
+    const present = recs.filter(r=>asArray(r.present).includes(s.id)).length;
     const rate = total ? Math.round(present/total*100) : 100;
-    const lastAbsent = recs.find(r=>!r.present.includes(s.id));
+    const lastAbsent = recs.find(r=>!asArray(r.present).includes(s.id));
     return {name:s.name, present, total, rate, lastAbsent: lastAbsent ? lastAbsent.date : null};
   }).filter(w => w.rate < 80 && w.total > 0);
   warnWrap.innerHTML = warnStudents.length ? warnStudents.map(w => `
@@ -3504,7 +3510,7 @@ function renderAttendPanel(){
   const histWrap = document.getElementById('attendHistList');
   const recs = attendanceRecords.filter(r=>r.classId===classId).sort((a,b)=>a.date<b.date?1:-1);
   histWrap.innerHTML = recs.length ? recs.map(r => `
-    <div class="hist-row"><span>${r.date}</span><span>${r.present.length}/${classStudents.filter(s=>s.classId===classId).length} có mặt</span></div>
+    <div class="hist-row"><span>${r.date}</span><span>${asArray(r.present).length}/${classStudents.filter(s=>s.classId===classId).length} có mặt</span></div>
   `).join('') : `<div class="empty">Chưa có lịch sử điểm danh.</div>`;
 }
 
@@ -3739,7 +3745,7 @@ async function loadTimetableModule(){
   renderTimetable();
 }
 function renderTimetable(){
-  const totalDaySlots = scheduleNeeds.reduce((s,n)=>s+n.days.length,0);
+  const totalDaySlots = scheduleNeeds.reduce((s,n)=>s+asArray(n.days).length,0);
   const thresholdMonth = 0.9 * 40; // 36h/tháng
   const thieu = hoursByTeacher.filter(t=>t.hoursMonth < thresholdMonth).length;
   const du = hoursByTeacher.length - thieu;
@@ -3771,7 +3777,7 @@ function renderTimetable(){
         <div><div class="need-code">${escapeHtml(n.code)}</div><div class="need-meta">${escapeHtml(n.format)} · ${escapeHtml(n.time)}</div></div>
         <button class="icon-btn danger" onclick="removeNeed('${n.id}')">🗑</button>
       </div>
-      ${n.days.map(d => `
+      ${asArray(n.days).map(d => `
         <div class="need-day"><span>${escapeHtml(d)}</span>
           <button class="suggest-btn" onclick="suggestTeacher('${n.id}')">✨ Gợi ý GV phù hợp</button>
         </div>`).join('')}
