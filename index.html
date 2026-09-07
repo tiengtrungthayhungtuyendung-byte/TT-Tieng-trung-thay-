@@ -1294,7 +1294,6 @@
       <div class="modal-scroll">
       <div class="field"><label>Tên lớp</label><input type="text" id="c_name" required placeholder="VD: 26H2.1"></div>
       <div class="field"><label>Cơ sở</label><input type="text" id="c_branch" placeholder="VD: Nguyễn Trãi"></div>
-      <div class="field"><label>Cấp độ</label><input type="text" id="c_level" placeholder="VD: Sơ cấp 2"></div>
       <div class="field"><label>Giờ học</label><input type="text" id="c_time" placeholder="VD: 19:00 - 21:00"></div>
       <div class="field"><label>Ca học</label><input type="text" id="c_session" placeholder="VD: 2-4-6"></div>
       <div class="field"><label>GV phụ trách 1</label><input type="text" id="c_teacher" placeholder="Để trống nếu chưa gán"></div>
@@ -3264,6 +3263,7 @@ const CLASS_KEY = 'classes-list';
 const STUDENTS_KEY = 'class-students';
 const ATTEND_KEY = 'attendance-records';
 let classes = [], classStudents = [], attendanceRecords = [];
+let editingClassId = null;
 
 const seedClasses = [];
 let seedStudents = [];
@@ -3313,18 +3313,13 @@ function renderClassTable(){
   const wrap = document.getElementById('classTableWrap');
   if(classes.length===0){ wrap.innerHTML = `<div class="empty">Chưa có lớp học nào.</div>`; return; }
   const rows = classes.map(c => {
-    const recs = attendanceRecords.filter(r=>r.classId===c.id);
-    const pct = classAttendanceRate(c.id);
-    const progressTxt = recs.length ? `${recs.length}/20 buổi · ${pct}% chuyên cần` : '0/20 buổi';
     const teacherLabel = [c.teacher, c.teacher2].filter(Boolean).join(', ');
     return `
     <tr>
       <td class="name-cell">${escapeHtml(c.name)}</td>
       <td>${escapeHtml(c.branch||'—')}</td>
-      <td>${escapeHtml(c.level||'—')}</td>
       <td style="${teacherLabel?'':'color:var(--red-deep)'}">${escapeHtml(teacherLabel||'Chưa gán')}</td>
       <td>${escapeHtml(c.siso||'—')}</td>
-      <td>${progressTxt}</td>
       <td>
         <select onchange="updateClassStatus('${c.id}', this.value)">
           ${['Đang tuyển','Đang học','Đã kết thúc'].map(op=>`<option ${c.status===op?'selected':''}>${op}</option>`).join('')}
@@ -3332,6 +3327,7 @@ function renderClassTable(){
       </td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" onclick="openEditClass('${c.id}')" title="Sửa">✏️</button>
           <button class="icon-btn danger" onclick="removeClass('${c.id}')" title="Xóa">🗑</button>
           <button class="icon-btn expand-toggle-btn" onclick="toggleClassRow('${c.id}')" title="Xem thêm">${c._open?'▲':'▼'}</button>
         </div>
@@ -3339,7 +3335,7 @@ function renderClassTable(){
     </tr>
     ${c._open ? `
     <tr class="profile-row">
-      <td colspan="8">
+      <td colspan="6">
         <div class="profile-panel">
           <div><span class="lbl">Giờ học</span><span class="val">${escapeHtml(c.time||'—')}</span></div>
           <div><span class="lbl">Ca học</span><span class="val">${escapeHtml(c.session||'—')}</span></div>
@@ -3350,9 +3346,19 @@ function renderClassTable(){
   }).join('');
   wrap.innerHTML = `
     <table><thead><tr>
-      <th>Tên lớp</th><th>Cơ sở</th><th>Cấp độ</th><th>GV phụ trách</th><th>Sĩ số</th><th>Tiến độ</th><th>Trạng thái</th><th></th>
+      <th>Tên lớp</th><th>Cơ sở</th><th>GV phụ trách</th><th>Sĩ số</th><th>Trạng thái</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table>`;
 }
+window.openEditClass = function(id){
+  const c = classes.find(x=>x.id===id); if(!c) return;
+  editingClassId = id;
+  document.querySelector('#overlayClass h2').textContent = 'Sửa thông tin lớp học';
+  $('#c_name').value = c.name; $('#c_branch').value = c.branch||'';
+  $('#c_time').value = c.time||''; $('#c_session').value = c.session||'';
+  $('#c_teacher').value = c.teacher||''; $('#c_teacher2').value = c.teacher2||'';
+  $('#c_siso').value = c.siso||''; $('#c_status').value = c.status;
+  document.getElementById('overlayClass').classList.add('show');
+};
 window.toggleClassRow = function(id){
   const c = classes.find(x=>x.id===id); if(!c) return;
   c._open = !c._open;
@@ -3372,18 +3378,17 @@ window.removeClass = async function(id){
   await storSet(CLASS_KEY, classes);
   toast('Đã xóa lớp học.');
 };
-document.getElementById('classAddBtn').onclick = () => document.getElementById('overlayClass').classList.add('show');
 
 document.getElementById('classExportBtn').addEventListener('click', ()=>{
-  const headers = ['Tên lớp','Cơ sở','Cấp độ','GV phụ trách','Sĩ số','Trạng thái'];
-  const rows = classes.map(c => [c.name, c.branch||'', c.level||'', c.teacher||'', c.siso||'', c.status]);
+  const headers = ['Tên lớp','Cơ sở','Giờ học','Ca học','GV phụ trách 1','GV phụ trách 2','Sĩ số','Trạng thái'];
+  const rows = classes.map(c => [c.name, c.branch||'', c.time||'', c.session||'', c.teacher||'', c.teacher2||'', c.siso||'', c.status]);
   downloadXlsx('danh-sach-lop-hoc.xlsx', headers, rows);
 });
 document.getElementById('classImportBtn').addEventListener('click', ()=>{
   openImportModal({
     title: 'Nhập danh sách lớp học',
-    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách lớp học. Hệ thống tự nhận diện các cột: <b>Lớp/Tên lớp, Cơ sở, Cấp độ, Giờ học, Ca học, GV phụ trách 1/2, Sĩ số, Trạng thái</b> — thiếu cột nào cũng không sao, hệ thống bỏ qua và không mất dữ liệu các cột còn lại.',
-    headers: ['Lớp','Cơ sở','Cấp độ','Giờ học','Ca học','GV phụ trách 1','GV phụ trách 2','Sĩ số','Trạng thái'],
+    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách lớp học. Hệ thống tự nhận diện các cột: <b>Lớp/Tên lớp, Cơ sở, Giờ học, Ca học, GV phụ trách 1/2, Sĩ số, Trạng thái</b> — thiếu cột nào cũng không sao, hệ thống bỏ qua và không mất dữ liệu các cột còn lại.',
+    headers: ['Lớp','Cơ sở','Giờ học','Ca học','GV phụ trách 1','GV phụ trách 2','Sĩ số','Trạng thái'],
     templateName: 'mau-danh-sach-lop-hoc.csv',
     onRows: (rows, mode) => {
       if(mode === 'replace') classes.length = 0;
@@ -3393,7 +3398,6 @@ document.getElementById('classImportBtn').addEventListener('click', ()=>{
         const name = valAt(row, nameKey);
         if(!name) return;
         const branchKey = findColumnKey(row, ['co so']);
-        const levelKey = findColumnKey(row, ['cap do']);
         const timeKey = findColumnKey(row, ['gio hoc'], ['gio']);
         const sessionKey = findColumnKey(row, ['ca hoc'], ['ca']);
         const teacherKey = findColumnKey(row, ['gv','phu trach','1'], ['giao vien phu trach'], ['gv phu trach'], ['giao vien']);
@@ -3404,7 +3408,6 @@ document.getElementById('classImportBtn').addEventListener('click', ()=>{
         classes.push({
           id: auid('c'), name,
           branch: valAt(row, branchKey),
-          level: valAt(row, levelKey),
           time: valAt(row, timeKey),
           session: valAt(row, sessionKey),
           teacher: (teacher && teacher !== 'Chưa gán') ? teacher : '',
@@ -3420,19 +3423,34 @@ document.getElementById('classImportBtn').addEventListener('click', ()=>{
     }
   });
 });
-document.getElementById('classCancelBtn').onclick = () => document.getElementById('overlayClass').classList.remove('show');
+document.getElementById('classCancelBtn').onclick = () => {
+  document.getElementById('overlayClass').classList.remove('show');
+  editingClassId = null;
+};
+document.getElementById('classAddBtn').onclick = () => {
+  editingClassId = null;
+  document.querySelector('#overlayClass h2').textContent = 'Thêm lớp học';
+  document.getElementById('classForm').reset();
+  document.getElementById('overlayClass').classList.add('show');
+};
 document.getElementById('classForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const item = {id:auid('c'), name:$('#c_name').value.trim(), branch:$('#c_branch').value.trim(),
-    level:$('#c_level').value.trim(), time:$('#c_time').value.trim(), session:$('#c_session').value.trim(),
+  const data = {name:$('#c_name').value.trim(), branch:$('#c_branch').value.trim(),
+    time:$('#c_time').value.trim(), session:$('#c_session').value.trim(),
     teacher:$('#c_teacher').value.trim(), teacher2:$('#c_teacher2').value.trim(),
     siso:$('#c_siso').value.trim(), status:$('#c_status').value};
-  if(!item.name) return;
-  classes.push(item);
+  if(!data.name) return;
+  if(editingClassId){
+    classes = classes.map(c => c.id===editingClassId ? {...c, ...data} : c);
+    toast('Đã cập nhật lớp học.');
+  }else{
+    classes.push({id:auid('c'), ...data});
+    toast('Đã thêm lớp học.');
+  }
+  editingClassId = null;
   document.getElementById('overlayClass').classList.remove('show');
   renderClassesAll();
   await storSet(CLASS_KEY, classes);
-  toast('Đã thêm lớp học.');
 });
 
 /* ---- Điểm danh ---- */
