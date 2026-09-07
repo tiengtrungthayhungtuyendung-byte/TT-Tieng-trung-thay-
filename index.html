@@ -2565,8 +2565,11 @@ async function fbDelete(key){
 
 async function storGet(key, seed){
   try{
-    const value = await fbGet(key);
+    let value = await fbGet(key);
     if(value === null || value === undefined) throw new Error('chưa có dữ liệu');
+    if(Array.isArray(seed) && !Array.isArray(value) && typeof value === 'object'){
+      value = Object.values(value); // Firebase đôi khi trả mảng dưới dạng object — tự chuyển lại thành mảng
+    }
     return value;
   }catch(e){
     try{ await fbSet(key, seed); }catch(e2){}
@@ -4681,22 +4684,32 @@ document.getElementById('staffImportBtn').addEventListener('click', ()=>{
 /* Đã chuyển sang Firebase Realtime Database — kho dữ liệu mới hoàn toàn trống, không cần bước dọn dữ liệu cũ nữa. */
 
 (async function initAll(){
-  await loadTeachers();
-  await loadBenefitsModule();
-  await loadAssistantsModule();
-  await loadClassesModule();
-  await loadTimetableModule();
-  await loadCareModule();
-  await loadContentModule();
-  await loadChangeHoursModule();
-  await loadBudgetModule();
-  await loadMatchModule();
-  await loadSalaryModule();
-  await loadLeadsModule();
-  await loadStudentsModule();
-  await loadStaffModule();
-  await loadFeedbackModule();
-  renderOverview();
+  const steps = [
+    ['Giáo viên', loadTeachers],
+    ['Chế độ & Phúc lợi', loadBenefitsModule],
+    ['Trợ giảng', loadAssistantsModule],
+    ['Lớp học', loadClassesModule],
+    ['Xếp lịch giảng dạy', loadTimetableModule],
+    ['Ghi nhận & thăm hỏi', loadCareModule],
+    ['Nội dung truyền thông', loadContentModule],
+    ['Đổi giờ dạy', loadChangeHoursModule],
+    ['Ngân sách', loadBudgetModule],
+    ['Đối chiếu tên', loadMatchModule],
+    ['Lương giáo viên', loadSalaryModule],
+    ['Tuyển sinh', loadLeadsModule],
+    ['Học viên & Học phí', loadStudentsModule],
+    ['Nhân viên', loadStaffModule],
+    ['Phản hồi học viên', loadFeedbackModule]
+  ];
+  for(const [label, fn] of steps){
+    try{
+      await fn();
+    }catch(err){
+      console.error(`Lỗi khi tải mục "${label}":`, err);
+      toast(`⚠ Mục "${label}" gặp lỗi khi tải, các mục khác vẫn tiếp tục hoạt động bình thường.`);
+    }
+  }
+  try{ renderOverview(); }catch(err){ console.error('Lỗi khi hiện Tổng quan:', err); }
 })();
 </script>
 </body>
