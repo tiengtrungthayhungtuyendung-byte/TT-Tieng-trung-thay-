@@ -1086,7 +1086,7 @@
           <input type="text" id="stuSearch" placeholder="Tìm học viên…" style="max-width:260px;padding:9px 12px;border-radius:7px;border:1px solid var(--line);">
           <div class="toolbar-right" style="margin:0;">
             <button class="btn-ghost" id="stuExportBtn">Xuất Excel</button>
-            <button class="btn-ghost">Nhập từ Excel/CSV</button>
+            <button class="btn-ghost" id="stuImportBtn">Nhập từ Excel/CSV</button>
             <button class="btn-primary" id="stuToggleAdd">+ Thêm học viên</button>
           </div>
         </div>
@@ -1103,6 +1103,7 @@
       </div>
 
       <div class="subview" id="stu-sub-fee">
+        <div class="toolbar-right"><button class="btn-primary" id="feeImportBtn">↑ Nhập bảng học phí</button></div>
         <div class="hint-note">Cập nhật số tiền học viên đã đóng — hệ thống tự tính số còn nợ.</div>
         <div class="card"><div id="feeTableWrap"></div></div>
       </div>
@@ -3220,41 +3221,83 @@ document.querySelectorAll('.ai-chip').forEach(chip=>{
 
 /* ================= BÁO CÁO & XU HƯỚNG ================= */
 let feeChartInst=null, studChartInst=null, budgetChartInst=null;
-const reportMonths = ['T3/2026','T4/2026','T5/2026','T6/2026','T7/2026','T8/2026'];
-const feePhatSinh = [0,0,0,0,6000000,11500000];
-const feeDaThu    = [0,0,0,0,5000000,6300000];
-const newStudents = [0,0,0,0,1,1];
-const budgetPlan  = [0,0,0,0,1200000,2000000];
-const budgetReal  = [0,0,0,0,1150000,1950000];
 
-function renderReportsCharts(){
-  if(typeof Chart === 'undefined') return;
+function getLast6Months(){
+  const arr = [];
+  const now = new Date();
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    arr.push({label:`T${d.getMonth()+1}/${d.getFullYear()}`, year:d.getFullYear(), month:d.getMonth()+1});
+  }
+  return arr;
+}
+function computeReportsData(){
+  const months = getLast6Months();
+  const labels = months.map(m=>m.label);
+  const studentsInMonth = m => (typeof enrolledStudents!=='undefined'?enrolledStudents:[]).filter(s=>{
+    if(!s.join) return false;
+    const parts = s.join.split('-');
+    if(parts.length<2) return false;
+    return +parts[0]===m.year && +parts[1]===m.month;
+  });
+  const feePhatSinh = months.map(m => studentsInMonth(m).reduce((sum,s)=>sum+(+s.feeTotal||0),0));
+  const feeDaThu    = months.map(m => studentsInMonth(m).reduce((sum,s)=>sum+(+s.feePaid||0),0));
+  const newStudents = months.map(m => studentsInMonth(m).length);
+
+  const periodMap = {};
+  (typeof budgetItems!=='undefined'?budgetItems:[]).forEach(b=>{
+    const key = b.period || 'Khác';
+    if(!periodMap[key]) periodMap[key] = {plan:0, real:0};
+    periodMap[key].plan += (+b.plan||0);
+    periodMap[key].real += (+b.real||0);
+  });
+  let budgetLabels = Object.keys(periodMap);
+  if(budgetLabels.length === 0) budgetLabels = labels;
+  budgetLabels = budgetLabels.slice(-6);
+  const budgetPlan = budgetLabels.map(k => periodMap[k] ? periodMap[k].plan : 0);
+  const budgetReal = budgetLabels.map(k => periodMap[k] ? periodMap[k].real : 0);
+
+  return {labels, feePhatSinh, feeDaThu, newStudents, budgetLabels, budgetPlan, budgetReal};
+}
+
+function renderReportsCharts(retriesLeft){
+  if(retriesLeft === undefined) retriesLeft = 15;
+  if(typeof Chart === 'undefined'){
+    if(retriesLeft > 0){ setTimeout(()=>renderReportsCharts(retriesLeft-1), 300); return; }
+    ['feeChart','newStudentsChart','budgetChart'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.parentElement) el.parentElement.innerHTML = '<div class="empty">Không tải được thư viện biểu đồ — kiểm tra kết nối mạng rồi mở lại mục này.</div>';
+    });
+    return;
+  }
+  const data = computeReportsData();
   const feeCtx = document.getElementById('feeChart');
   const studCtx = document.getElementById('newStudentsChart');
   const budgetCtx = document.getElementById('budgetChart');
+  if(!feeCtx || !studCtx || !budgetCtx) return;
   if(feeChartInst) feeChartInst.destroy();
   if(studChartInst) studChartInst.destroy();
   if(budgetChartInst) budgetChartInst.destroy();
 
   feeChartInst = new Chart(feeCtx, {
     type:'line',
-    data:{ labels:reportMonths, datasets:[
-      {label:'Học phí phát sinh', data:feePhatSinh, borderColor:'#b8863b', backgroundColor:'#b8863b', tension:.3},
-      {label:'Đã thu', data:feeDaThu, borderColor:'#2f7d55', backgroundColor:'#2f7d55', tension:.3}
+    data:{ labels:data.labels, datasets:[
+      {label:'Học phí phát sinh', data:data.feePhatSinh, borderColor:'#b8863b', backgroundColor:'#b8863b', tension:.3},
+      {label:'Đã thu', data:data.feeDaThu, borderColor:'#2f7d55', backgroundColor:'#2f7d55', tension:.3}
     ]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}},
       scales:{y:{ticks:{callback:v=> (v/1000000)+'tr'}}}}
   });
   studChartInst = new Chart(studCtx, {
     type:'bar',
-    data:{ labels:reportMonths, datasets:[{label:'Học viên mới', data:newStudents, backgroundColor:'#c1272d'}] },
+    data:{ labels:data.labels, datasets:[{label:'Học viên mới', data:data.newStudents, backgroundColor:'#c1272d'}] },
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{stepSize:1}}}}
   });
   budgetChartInst = new Chart(budgetCtx, {
     type:'bar',
-    data:{ labels:reportMonths, datasets:[
-      {label:'Dự kiến', data:budgetPlan, backgroundColor:'#b8863b'},
-      {label:'Thực tế', data:budgetReal, backgroundColor:'#2f7d55'}
+    data:{ labels:data.budgetLabels, datasets:[
+      {label:'Dự kiến', data:data.budgetPlan, backgroundColor:'#b8863b'},
+      {label:'Thực tế', data:data.budgetReal, backgroundColor:'#2f7d55'}
     ]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}},
       scales:{y:{ticks:{callback:v=> (v/1000000)+'tr'}}}}
@@ -4420,16 +4463,18 @@ function renderFeeTable(){
     return `
     <tr>
       <td class="name-cell">${escapeHtml(s.name)}</td>
+      <td>${escapeHtml(s.className||'—')}</td>
       <td>
         <div class="fee-input-row">
           <input type="text" value="${s.feePaid||0}" onchange="updateFee('${s.id}','feePaid',this.value)"> /
           <input type="text" value="${s.feeTotal||0}" onchange="updateFee('${s.id}','feeTotal',this.value)"> đ
         </div>
       </td>
+      <td>${fmtDate(s.dueDate)}</td>
       <td>${debt>0?`<span class="pill thieu">Còn nợ ${debt.toLocaleString('vi-VN')} đ</span>`:`<span class="pill du">Đã đủ</span>`}</td>
     </tr>`;
   }).join('');
-  wrap.innerHTML = `<table><thead><tr><th>Học viên</th><th>Đã đóng / Tổng học phí</th><th>Tình trạng</th></tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.innerHTML = `<table><thead><tr><th>Học viên</th><th>Lớp</th><th>Đã đóng / Tổng học phí</th><th>Hạn đóng</th><th>Tình trạng</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 window.updateFee = async function(id, field, val){
   const s = enrolledStudents.find(x=>x.id===id); if(!s) return;
@@ -4472,6 +4517,87 @@ document.getElementById('stuExportBtn').addEventListener('click', ()=>{
   const headers = ['Họ và tên','SĐT','Cơ sở','Loại học viên','Đã đóng','Tổng học phí','Trạng thái'];
   const rows = enrolledStudents.map(s=>[s.name,s.phone||'',s.branch||'',s.type,s.feePaid||0,s.feeTotal||0,s.status]);
   downloadXlsx('hoc-vien-hoc-phi.xlsx', headers, rows);
+});
+
+document.getElementById('stuImportBtn').addEventListener('click', ()=>{
+  openImportModal({
+    title: 'Nhập danh sách học viên',
+    desc: 'Tải lên file .csv hoặc .xlsx chứa danh sách học viên. Hệ thống tự nhận diện: <b>Họ và tên, SĐT, Email, Cơ sở, Ngày đăng ký, Trạng thái</b>.',
+    headers: ['Họ và tên','SĐT','Email','Cơ sở','Ngày đăng ký','Trạng thái'],
+    templateName: 'mau-danh-sach-hoc-vien.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') enrolledStudents.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const name = pickField(row, 'Họ và tên','Ho va ten','Name','Ten','Họ tên','Tên');
+        if(!name) return;
+        const joinRaw = pickField(row,'Ngày đăng ký','Ngày vào học');
+        enrolledStudents.push({
+          id: auid('en'), name,
+          phone: pickField(row,'SĐT','Số điện thoại'),
+          email: pickField(row,'Email'),
+          branch: pickField(row,'Cơ sở'),
+          join: dobToIso(joinRaw) || joinRaw,
+          type: 'Học viên mới',
+          feePaid: 0, feeTotal: 0,
+          status: pickField(row,'Trạng thái') || 'Đang học'
+        });
+        count++;
+      });
+      renderStudentsAll();
+      storSet(STUDENTS_LIST_KEY, enrolledStudents);
+      return count;
+    }
+  });
+});
+
+document.getElementById('feeImportBtn').addEventListener('click', ()=>{
+  openImportModal({
+    title: 'Nhập bảng học phí',
+    desc: 'Tải lên file .csv hoặc .xlsx với các cột: <b>Học viên, Lớp, Cơ sở, Học phí, Giảm giá, Đã đóng, Hạn đóng, Ngày đăng ký</b>. Học viên chưa có trong danh sách sẽ được <b>tự động thêm mới</b>.',
+    headers: ['Học viên','Lớp','Cơ sở','Học phí','Giảm giá','Đã đóng','Hạn đóng','Ngày đăng ký'],
+    templateName: 'mau-bang-hoc-phi.csv',
+    onRows: (rows, mode) => {
+      if(mode === 'replace') enrolledStudents.length = 0;
+      let count = 0;
+      rows.forEach(row => {
+        const name = pickField(row, 'Học viên','Họ và tên','Tên');
+        if(!name) return;
+        const hocPhi = parseInt((pickField(row,'Học phí')||'0').replace(/[^\d]/g,''),10) || 0;
+        const giamGia = parseInt((pickField(row,'Giảm giá')||'0').replace(/[^\d]/g,''),10) || 0;
+        const daDong = parseInt((pickField(row,'Đã đóng')||'0').replace(/[^\d]/g,''),10) || 0;
+        const feeTotal = Math.max(hocPhi - giamGia, 0);
+        const className = pickField(row,'Lớp');
+        const branch = pickField(row,'Cơ sở');
+        const dueDate = pickField(row,'Hạn đóng');
+        const joinRaw = pickField(row,'Ngày đăng ký');
+        const nameNorm = normKey(name);
+        let student = enrolledStudents.find(s => normKey(s.name) === nameNorm);
+        if(student){
+          student.className = className || student.className;
+          student.branch = branch || student.branch;
+          student.feeTotal = feeTotal;
+          student.discount = giamGia;
+          student.feePaid = daDong;
+          student.dueDate = dobToIso(dueDate) || dueDate || student.dueDate;
+          if(joinRaw) student.join = dobToIso(joinRaw) || joinRaw;
+        }else{
+          student = {
+            id: auid('en'), name, className, branch,
+            join: dobToIso(joinRaw) || joinRaw,
+            type: 'Học viên mới', feePaid: daDong, feeTotal, discount: giamGia,
+            dueDate: dobToIso(dueDate) || dueDate,
+            status: 'Đang học'
+          };
+          enrolledStudents.push(student);
+        }
+        count++;
+      });
+      renderStudentsAll();
+      storSet(STUDENTS_LIST_KEY, enrolledStudents);
+      return count;
+    }
+  });
 });
 
 const stuSubMap = {list:'stu-sub-list', fee:'stu-sub-fee'};
