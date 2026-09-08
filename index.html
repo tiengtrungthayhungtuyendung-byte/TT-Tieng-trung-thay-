@@ -655,6 +655,16 @@
 
       <!-- --- Sub view: Khai giảng & Bế giảng --- -->
       <div class="subview" id="asst-sub-kbg">
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-title">🔄 Đồng bộ tự động từ Google Sheets</div>
+          <div class="hint-note">Dán link Google Sheet đã "Publish to web" dạng CSV — mỗi khi mở trang, hệ thống sẽ tự đọc dữ liệu mới nhất từ Sheet (không mất checklist đã tick của các lớp cũ).</div>
+          <div class="quick-add" style="margin-bottom:0;">
+            <input type="text" id="kbgSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" style="flex:1;min-width:260px;">
+            <button class="btn-ghost" id="kbgSheetSaveBtn">💾 Lưu link</button>
+            <button class="btn-primary" id="kbgSheetSyncBtn">🔄 Đồng bộ ngay</button>
+          </div>
+          <div class="hint-note" id="kbgSheetStatus" style="margin-top:8px;margin-bottom:0;"></div>
+        </div>
         <div class="toolbar-right">
           <button class="btn-ghost" id="kbgImportBtn">Nhập theo dõi khai giảng</button>
           <button class="btn-primary" id="kbgAddBtn">+ Thêm bế giảng thủ công</button>
@@ -2642,6 +2652,7 @@ async function loadAssistantsModule(){
   shiftRequests = await storGet(SHIFT_KEY, seedShiftReq);
   rewardRecords = await storGet(REWARD_KEY, seedReward);
   renderAssistantsAll();
+  await loadKbgSheetSync();
 }
 
 const BRANCHES = ['Nguyễn Trãi','Cầu Giấy','Láng'];
@@ -3028,6 +3039,84 @@ window.openEditKbg = function(id){
 document.getElementById('kbgAddBtn').onclick = openKbgAdd;
 
 const KBG_CHECKLIST_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Nhận đủ số lượng sách khai giảng','Tham gia nhóm lớp zalo'];
+
+/* ---- Đồng bộ tự động từ Google Sheets (Khai giảng & Bế giảng) ---- */
+const KBG_SHEET_URL_KEY = 'kbg-sheet-url';
+let kbgSheetUrl = '';
+
+async function loadKbgSheetSync(){
+  kbgSheetUrl = await storGet(KBG_SHEET_URL_KEY, '');
+  if(kbgSheetUrl) $('#kbgSheetUrl').value = kbgSheetUrl;
+  if(kbgSheetUrl) await syncKbgFromGoogleSheet(true);
+}
+function setKbgSheetStatus(msg, isError){
+  const el = document.getElementById('kbgSheetStatus');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red-deep)' : 'var(--green)';
+}
+document.getElementById('kbgSheetSaveBtn').addEventListener('click', async ()=>{
+  kbgSheetUrl = $('#kbgSheetUrl').value.trim();
+  await storSet(KBG_SHEET_URL_KEY, kbgSheetUrl);
+  toast('Đã lưu link Google Sheets.');
+  if(kbgSheetUrl) await syncKbgFromGoogleSheet();
+});
+document.getElementById('kbgSheetSyncBtn').addEventListener('click', ()=> syncKbgFromGoogleSheet());
+
+async function syncKbgFromGoogleSheet(silent){
+  const url = $('#kbgSheetUrl').value.trim();
+  if(!url){ if(!silent) toast('Vui lòng dán link Google Sheets trước.'); return; }
+  if(typeof Papa === 'undefined'){ setKbgSheetStatus('Không tải được thư viện đọc CSV.', true); return; }
+  setKbgSheetStatus('Đang đồng bộ…', false);
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+    const rows = parsed.data || [];
+    let added = 0, updated = 0;
+    rows.forEach(row => {
+      const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+      const code = valAt(row, codeKey);
+      if(!code) return;
+      const weekKey = findColumnKey(row, ['tuan']);
+      const dateKey = findColumnKey(row, ['ngay']);
+      const branchKey = findColumnKey(row, ['co so']);
+      const shiftKey = findColumnKey(row, ['ca truc'], ['ca']);
+      const assistantKey = findColumnKey(row, ['tro giang'], ['phu trach']);
+      const sisoKey = findColumnKey(row, ['si so']);
+      const noteKey = findColumnKey(row, ['ghi chu']);
+      const used = [codeKey, weekKey, dateKey, branchKey, shiftKey, assistantKey, sisoKey, noteKey].filter(Boolean);
+      const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
+      const checklist = [...numbered, ...unnumbered];
+      const rawDate = valAt(row, dateKey);
+      const newData = {
+        type: 'Khai giảng', code,
+        week: valAt(row, weekKey),
+        date: dobToIso(rawDate) || rawDate,
+        branch: valAt(row, branchKey),
+        shift: valAt(row, shiftKey),
+        assistant: valAt(row, assistantKey),
+        siso: valAt(row, sisoKey),
+        note: valAt(row, noteKey),
+        checklist
+      };
+      const existing = kbgItems.find(k => normKey(k.code) === normKey(code));
+      if(existing){
+        Object.assign(existing, newData);
+        updated++;
+      }else{
+        kbgItems.push({id: auid('k'), ...newData});
+        added++;
+      }
+    });
+    renderKbgList(); renderKbgSummary(); renderAsstStatHeader();
+    await storSet(KBG_KEY, kbgItems);
+    const now = new Date().toLocaleTimeString('vi-VN');
+    setKbgSheetStatus(`✓ Đồng bộ lúc ${now} — ${added} lớp mới, ${updated} lớp cập nhật.`, false);
+  }catch(err){
+    setKbgSheetStatus('⚠ Không đồng bộ được — kiểm tra lại link đã "Publish to web" đúng định dạng CSV chưa, hoặc kiểm tra kết nối mạng.', true);
+  }
+}
 
 document.getElementById('kbgImportBtn').addEventListener('click', ()=>{
   openImportModal({
