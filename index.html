@@ -1225,17 +1225,20 @@
 
 <div class="overlay" id="overlayKbg">
   <div class="modal">
-    <h2 class="serif">Thêm khai giảng / bế giảng thủ công</h2>
+    <h2 class="serif" id="kbgModalTitle">Thêm khai giảng / bế giảng thủ công</h2>
     <form id="kbgForm">
       <div class="modal-scroll">
       <div class="field"><label>Loại</label>
         <select id="k_type"><option>Khai giảng</option><option>Bế giảng</option></select>
       </div>
       <div class="field"><label>Mã lớp</label><input type="text" id="k_code" placeholder="VD: 26H2.20" required></div>
+      <div class="field"><label>Tuần</label><input type="text" id="k_week" placeholder="VD: Tuần 31"></div>
       <div class="field"><label>Ngày</label><input type="date" id="k_date"></div>
       <div class="field"><label>Cơ sở</label><input type="text" id="k_branch" placeholder="VD: Nguyễn Trãi"></div>
+      <div class="field"><label>Ca trực</label><input type="text" id="k_shift" placeholder="VD: Ca 5 (19:00 - 21:00)"></div>
       <div class="field"><label>Trợ giảng phụ trách</label><input type="text" id="k_assistant"></div>
-      <div class="field"><label>Sĩ số (hiện có/tối đa)</label><input type="text" id="k_siso" placeholder="VD: 15/19"></div></div>
+      <div class="field"><label>Sĩ số (hiện có/tối đa)</label><input type="text" id="k_siso" placeholder="VD: 15/19"></div>
+      <div class="field"><label>Ghi chú</label><input type="text" id="k_note"></div></div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" id="kbgCancelBtn">Hủy</button>
         <button type="submit" class="btn-primary">Lưu</button>
@@ -2576,6 +2579,7 @@ const SHIFT_KEY = 'shift-requests';
 const REWARD_KEY = 'reward-records';
 
 let assistants = [], sessionTasks = [], kbgItems = [], shiftRequests = [], rewardRecords = [];
+let editingKbgId = null;
 let editingAsstId = null;
 
 function auid(prefix){ return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,7); }
@@ -2956,7 +2960,8 @@ function renderKbgList(){
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="pct-pill ${pillClass}">${pillLabel}</span>
-          <button class="kbg-del" onclick="removeKbg('${k.id}')">🗑</button>
+          <button class="icon-btn" onclick="openEditKbg('${k.id}')" title="Sửa">✏️</button>
+          <button class="kbg-del" onclick="removeKbg('${k.id}')" title="Xóa">🗑</button>
         </div>
       </div>
       ${k.checklist.length>0 ? `<div class="task-toggle" onclick="toggleKbgDetail('${k.id}')">${k._open?'Ẩn':'Xem'} checklist ${k.type==='Khai giảng'?'khai giảng':'bế giảng'}</div>` : ''}
@@ -3003,7 +3008,24 @@ function renderKbgSummary(){ renderBranchSummaryTable('kbgSummary'); }
 function renderShiftSummary(){ renderBranchSummaryTable('shiftSummary'); }
 function renderRewardBranchSummary(){ renderBranchSummaryTable('rewardBranchSummary'); }
 
-document.getElementById('kbgAddBtn').onclick = () => document.getElementById('overlayKbg').classList.add('show');
+function openKbgAdd(){
+  editingKbgId = null;
+  document.getElementById('kbgModalTitle').textContent = 'Thêm khai giảng / bế giảng thủ công';
+  document.getElementById('kbgForm').reset();
+  document.getElementById('overlayKbg').classList.add('show');
+}
+window.openEditKbg = function(id){
+  const k = kbgItems.find(x=>x.id===id); if(!k) return;
+  editingKbgId = id;
+  document.getElementById('kbgModalTitle').textContent = 'Sửa thông tin khai giảng / bế giảng';
+  $('#k_type').value = k.type; $('#k_code').value = k.code;
+  $('#k_week').value = k.week||''; $('#k_date').value = k.date||'';
+  $('#k_branch').value = k.branch||''; $('#k_shift').value = k.shift||'';
+  $('#k_assistant').value = k.assistant||''; $('#k_siso').value = k.siso||'';
+  $('#k_note').value = k.note||'';
+  document.getElementById('overlayKbg').classList.add('show');
+};
+document.getElementById('kbgAddBtn').onclick = openKbgAdd;
 
 const KBG_CHECKLIST_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Nhận đủ số lượng sách khai giảng','Tham gia nhóm lớp zalo'];
 
@@ -3051,17 +3073,27 @@ document.getElementById('kbgImportBtn').addEventListener('click', ()=>{
   });
 });
 
-document.getElementById('kbgCancelBtn').onclick = () => document.getElementById('overlayKbg').classList.remove('show');
+document.getElementById('kbgCancelBtn').onclick = () => {
+  document.getElementById('overlayKbg').classList.remove('show');
+  editingKbgId = null;
+};
 document.getElementById('kbgForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const item = {id:auid('k'), type:$('#k_type').value, code:$('#k_code').value.trim(), date:$('#k_date').value,
-    branch:$('#k_branch').value.trim(), assistant:$('#k_assistant').value.trim(), siso:$('#k_siso').value.trim(), checklist:[]};
-  if(!item.code) return;
-  kbgItems.push(item);
+  const data = {type:$('#k_type').value, code:$('#k_code').value.trim(), week:$('#k_week').value.trim(),
+    date:$('#k_date').value, branch:$('#k_branch').value.trim(), shift:$('#k_shift').value.trim(),
+    assistant:$('#k_assistant').value.trim(), siso:$('#k_siso').value.trim(), note:$('#k_note').value.trim()};
+  if(!data.code) return;
+  if(editingKbgId){
+    kbgItems = kbgItems.map(k => k.id===editingKbgId ? {...k, ...data} : k);
+    toast('Đã cập nhật.');
+  }else{
+    kbgItems.push({id:auid('k'), ...data, checklist:[]});
+    toast('Đã thêm.');
+  }
+  editingKbgId = null;
   document.getElementById('overlayKbg').classList.remove('show');
   renderKbgList(); renderKbgSummary(); renderAsstStatHeader();
   await storSet(KBG_KEY, kbgItems);
-  toast('Đã thêm.');
 });
 
 /* ---- Chấm công: Đổi ca / Tăng ca ---- */
