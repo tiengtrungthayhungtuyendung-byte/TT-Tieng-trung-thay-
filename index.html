@@ -3309,6 +3309,11 @@ function computeReportsData(){
   return {labels, feePhatSinh, feeDaThu, newStudents, budgetLabels, budgetPlan, budgetReal};
 }
 
+function formatVND(v){
+  let n = Math.round(Number(v) || 0);
+  if(n === 0) n = 0; // tránh hiện "-0 đ"
+  return n.toLocaleString('vi-VN') + ' đ';
+}
 function renderReportsCharts(retriesLeft){
   if(retriesLeft === undefined) retriesLeft = 15;
   if(typeof Chart === 'undefined'){
@@ -3334,13 +3339,14 @@ function renderReportsCharts(retriesLeft){
       {label:'Học phí phát sinh', data:data.feePhatSinh, borderColor:'#b8863b', backgroundColor:'#b8863b', tension:.3},
       {label:'Đã thu', data:data.feeDaThu, borderColor:'#2f7d55', backgroundColor:'#2f7d55', tension:.3}
     ]},
-    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}},
-      scales:{y:{ticks:{callback:v=> (v/1000000)+'tr'}}}}
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'},
+      tooltip:{callbacks:{label:ctx=> `${ctx.dataset.label}: ${formatVND(ctx.parsed.y)}`}}},
+      scales:{y:{beginAtZero:true, ticks:{callback:formatVND}}}}
   });
   studChartInst = new Chart(studCtx, {
     type:'bar',
     data:{ labels:data.labels, datasets:[{label:'Học viên mới', data:data.newStudents, backgroundColor:'#c1272d'}] },
-    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{stepSize:1}}}}
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{stepSize:1, precision:0}}}}
   });
   budgetChartInst = new Chart(budgetCtx, {
     type:'bar',
@@ -3348,8 +3354,9 @@ function renderReportsCharts(retriesLeft){
       {label:'Dự kiến', data:data.budgetPlan, backgroundColor:'#b8863b'},
       {label:'Thực tế', data:data.budgetReal, backgroundColor:'#2f7d55'}
     ]},
-    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}},
-      scales:{y:{ticks:{callback:v=> (v/1000000)+'tr'}}}}
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'},
+      tooltip:{callbacks:{label:ctx=> `${ctx.dataset.label}: ${formatVND(ctx.parsed.y)}`}}},
+      scales:{y:{beginAtZero:true, ticks:{callback:formatVND}}}}
   });
 }
 
