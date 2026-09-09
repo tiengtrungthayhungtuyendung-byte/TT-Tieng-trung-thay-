@@ -642,6 +642,16 @@
 
       <!-- --- Sub view: Nhiệm vụ theo buổi --- -->
       <div class="subview" id="asst-sub-tasks">
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-title">🔄 Đồng bộ tự động từ Google Sheets</div>
+          <div class="hint-note">Dán link Google Sheet đã "Publish to web" / export CSV — mỗi khi mở trang, hệ thống sẽ tự đọc dữ liệu mới nhất từ Sheet.</div>
+          <div class="quick-add" style="margin-bottom:0;">
+            <input type="text" id="taskSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." style="flex:1;min-width:260px;">
+            <button class="btn-ghost" id="taskSheetSaveBtn">💾 Lưu link</button>
+            <button class="btn-primary" id="taskSheetSyncBtn">🔄 Đồng bộ ngay</button>
+          </div>
+          <div class="hint-note" id="taskSheetStatus" style="margin-top:8px;margin-bottom:0;"></div>
+        </div>
         <div class="toolbar" style="justify-content:space-between;">
           <select id="taskFilter" style="max-width:180px;">
             <option value="">Tất cả</option>
@@ -2652,6 +2662,7 @@ async function loadAssistantsModule(){
   shiftRequests = await storGet(SHIFT_KEY, seedShiftReq);
   rewardRecords = await storGet(REWARD_KEY, seedReward);
   renderAssistantsAll();
+  await loadTaskSheetSync();
   await loadKbgSheetSync();
 }
 
@@ -2904,6 +2915,81 @@ document.getElementById('taskFilter').addEventListener('change', renderTaskList)
 
 const TASK_A_ITEMS = ['Kiểm tra danh sách khai giảng, tạo DS2','Gửi thông tin ship sách cho Giáo vụ','Tham gia nhóm lớp zalo','Gửi học liệu trước buổi học'];
 const TASK_B_ITEMS = ['Vệ sinh','Thống kê giảng dạy','Chữa BT','Điểm danh (onl và off)','Gửi khảo sát ẩn danh','Tải/gửi record','Gửi học liệu sau buổi học','Tắt toàn bộ thiết bị điện'];
+
+/* ---- Đồng bộ tự động từ Google Sheets (Nhiệm vụ theo buổi) ---- */
+const TASK_SHEET_URL_KEY = 'task-sheet-url';
+let taskSheetUrl = '';
+
+async function loadTaskSheetSync(){
+  taskSheetUrl = await storGet(TASK_SHEET_URL_KEY, '');
+  if(taskSheetUrl) $('#taskSheetUrl').value = taskSheetUrl;
+  if(taskSheetUrl) await syncTaskFromGoogleSheet(true);
+}
+function setTaskSheetStatus(msg, isError){
+  const el = document.getElementById('taskSheetStatus');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red-deep)' : 'var(--green)';
+}
+document.getElementById('taskSheetSaveBtn').addEventListener('click', async ()=>{
+  taskSheetUrl = $('#taskSheetUrl').value.trim();
+  await storSet(TASK_SHEET_URL_KEY, taskSheetUrl);
+  toast('Đã lưu link Google Sheets.');
+  if(taskSheetUrl) await syncTaskFromGoogleSheet();
+});
+document.getElementById('taskSheetSyncBtn').addEventListener('click', ()=> syncTaskFromGoogleSheet());
+
+async function syncTaskFromGoogleSheet(silent){
+  const url = $('#taskSheetUrl').value.trim();
+  if(!url){ if(!silent) toast('Vui lòng dán link Google Sheets trước.'); return; }
+  if(typeof Papa === 'undefined'){ setTaskSheetStatus('Không tải được thư viện đọc CSV.', true); return; }
+  setTaskSheetStatus('Đang đồng bộ…', false);
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+    const rows = parsed.data || [];
+    let added = 0, updated = 0;
+    rows.forEach(row => {
+      const nameKey = findColumnKey(row, ['tro giang','phu trach'], ['ho va ten'], ['ten']);
+      const name = valAt(row, nameKey);
+      if(!name) return;
+      const dateKey = findColumnKey(row, ['ngay']);
+      const branchKey = findColumnKey(row, ['co so']);
+      const shiftKey = findColumnKey(row, ['ca']);
+      const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+      const weekKey = findColumnKey(row, ['tuan']);
+      const sisoKey = findColumnKey(row, ['si so']);
+      const noteKey = findColumnKey(row, ['ghi chu']);
+      const used = [nameKey, dateKey, branchKey, shiftKey, classKey, weekKey, sisoKey, noteKey].filter(Boolean);
+      const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
+      const rawDate = valAt(row, dateKey);
+      const date = dobToIso(rawDate) || rawDate;
+      const className = valAt(row, classKey);
+      const matchKey = t => normKey(t.name)===normKey(name) && t.date===date && normKey(t.className||'')===normKey(className||'');
+      const newData = {
+        name, className, week: valAt(row, weekKey), date,
+        branch: valAt(row, branchKey), shift: valAt(row, shiftKey),
+        tag: (unnumbered.length && !unnumbered.every(c=>c.done)) ? 'Khai giảng còn thiếu' : null,
+        a: unnumbered, b: numbered
+      };
+      const existing = sessionTasks.find(matchKey);
+      if(existing){
+        Object.assign(existing, newData);
+        updated++;
+      }else{
+        sessionTasks.push({id: auid('tk'), ...newData});
+        added++;
+      }
+    });
+    renderTaskList(); renderAsstStatHeader();
+    await storSet(TASKS_KEY, sessionTasks);
+    const now = new Date().toLocaleTimeString('vi-VN');
+    setTaskSheetStatus(`✓ Đồng bộ lúc ${now} — ${added} buổi mới, ${updated} buổi cập nhật.`, false);
+  }catch(err){
+    setTaskSheetStatus('⚠ Không đồng bộ được — kiểm tra lại link đã đúng định dạng CSV chưa, hoặc kiểm tra kết nối mạng.', true);
+  }
+}
 
 document.getElementById('taskImportBtn').addEventListener('click', ()=>{
   openImportModal({
