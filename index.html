@@ -2956,17 +2956,19 @@ async function syncTaskFromGoogleSheet(silent){
       if(!name) return;
       const dateKey = findColumnKey(row, ['ngay']);
       const branchKey = findColumnKey(row, ['co so']);
-      const shiftKey = findColumnKey(row, ['ca']);
-      const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+      const shiftKey = findColumnKey(row, ['ca truc'], ['=ca']);
+      const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['=lop']);
       const weekKey = findColumnKey(row, ['tuan']);
       const sisoKey = findColumnKey(row, ['si so']);
-      const noteKey = findColumnKey(row, ['ghi chu']);
+      const noteKey = findColumnKey(row, ['ghi chu'], ['bao cao']);
       const used = [nameKey, dateKey, branchKey, shiftKey, classKey, weekKey, sisoKey, noteKey].filter(Boolean);
       const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
       const rawDate = valAt(row, dateKey);
       const date = dobToIso(rawDate) || rawDate;
       const className = valAt(row, classKey);
-      const matchKey = t => normKey(t.name)===normKey(name) && t.date===date && normKey(t.className||'')===normKey(className||'');
+      const shiftVal = valAt(row, shiftKey);
+      const matchKey = t => normKey(t.name)===normKey(name) && t.date===date
+        && normKey(t.className||'')===normKey(className||'') && normKey(t.shift||'')===normKey(shiftVal||'');
       const newData = {
         name, className, week: valAt(row, weekKey), date,
         branch: valAt(row, branchKey), shift: valAt(row, shiftKey),
@@ -3006,11 +3008,11 @@ document.getElementById('taskImportBtn').addEventListener('click', ()=>{
         if(!name) return;
         const dateKey = findColumnKey(row, ['ngay']);
         const branchKey = findColumnKey(row, ['co so']);
-        const shiftKey = findColumnKey(row, ['ca']);
-        const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+        const shiftKey = findColumnKey(row, ['ca truc'], ['=ca']);
+        const classKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['=lop']);
         const weekKey = findColumnKey(row, ['tuan']);
         const sisoKey = findColumnKey(row, ['si so']);
-        const noteKey = findColumnKey(row, ['ghi chu']);
+        const noteKey = findColumnKey(row, ['ghi chu'], ['bao cao']);
         const used = [nameKey, dateKey, branchKey, shiftKey, classKey, weekKey, sisoKey, noteKey].filter(Boolean);
         const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
         const rawDate = valAt(row, dateKey);
@@ -3161,16 +3163,16 @@ async function syncKbgFromGoogleSheet(silent){
     const rows = parsed.data || [];
     let added = 0, updated = 0;
     rows.forEach(row => {
-      const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+      const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['=lop']);
       const code = valAt(row, codeKey);
       if(!code) return;
       const weekKey = findColumnKey(row, ['tuan']);
       const dateKey = findColumnKey(row, ['ngay']);
       const branchKey = findColumnKey(row, ['co so']);
-      const shiftKey = findColumnKey(row, ['ca truc'], ['ca']);
+      const shiftKey = findColumnKey(row, ['ca truc'], ['=ca']);
       const assistantKey = findColumnKey(row, ['tro giang'], ['phu trach']);
       const sisoKey = findColumnKey(row, ['si so']);
-      const noteKey = findColumnKey(row, ['ghi chu']);
+      const noteKey = findColumnKey(row, ['ghi chu'], ['bao cao']);
       const used = [codeKey, weekKey, dateKey, branchKey, shiftKey, assistantKey, sisoKey, noteKey].filter(Boolean);
       const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
       const checklist = [...numbered, ...unnumbered];
@@ -3214,16 +3216,16 @@ document.getElementById('kbgImportBtn').addEventListener('click', ()=>{
       if(mode === 'replace') kbgItems.length = 0;
       let count = 0;
       rows.forEach(row => {
-        const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+        const codeKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['=lop']);
         const code = valAt(row, codeKey);
         if(!code) return;
         const weekKey = findColumnKey(row, ['tuan']);
         const dateKey = findColumnKey(row, ['ngay']);
         const branchKey = findColumnKey(row, ['co so']);
-        const shiftKey = findColumnKey(row, ['ca truc'], ['ca']);
+        const shiftKey = findColumnKey(row, ['ca truc'], ['=ca']);
         const assistantKey = findColumnKey(row, ['tro giang'], ['phu trach']);
         const sisoKey = findColumnKey(row, ['si so']);
-        const noteKey = findColumnKey(row, ['ghi chu']);
+        const noteKey = findColumnKey(row, ['ghi chu'], ['bao cao']);
         const used = [codeKey, weekKey, dateKey, branchKey, shiftKey, assistantKey, sisoKey, noteKey].filter(Boolean);
         const {numbered, unnumbered} = buildChecklistFromRemaining(row, used);
         const checklist = [...numbered, ...unnumbered];
@@ -3709,11 +3711,11 @@ document.getElementById('classImportBtn').addEventListener('click', ()=>{
       if(mode === 'replace') classes.length = 0;
       let count = 0;
       rows.forEach(row => {
-        const nameKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['lop']);
+        const nameKey = findColumnKey(row, ['ten lop'], ['ma lop'], ['=lop']);
         const name = valAt(row, nameKey);
         if(!name) return;
         const branchKey = findColumnKey(row, ['co so']);
-        const timeKey = findColumnKey(row, ['gio hoc'], ['gio']);
+        const timeKey = findColumnKey(row, ['gio hoc'], ['=gio']);
         const sessionKey = findColumnKey(row, ['ca hoc'], ['ca']);
         const teacherKey = findColumnKey(row, ['gv','phu trach','1'], ['giao vien phu trach'], ['gv phu trach'], ['giao vien']);
         const teacher2Key = findColumnKey(row, ['gv','phu trach','2']);
@@ -3908,8 +3910,13 @@ renderFeedback();
 function findColumnKey(row, ...keywordGroups){
   const keys = Object.keys(row);
   for(const group of keywordGroups){
-    const normGroup = group.map(normKey);
-    const found = keys.find(k => normGroup.every(g => normKey(k).includes(g)));
+    const found = keys.find(k => {
+      const nk = normKey(k);
+      return group.every(g => {
+        if(g.startsWith('=')) return nk === normKey(g.slice(1)); // khớp chính xác, tránh nhầm cột dài chứa cùng từ
+        return nk.includes(normKey(g));
+      });
+    });
     if(found) return found;
   }
   return null;
