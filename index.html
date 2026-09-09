@@ -1243,6 +1243,27 @@
   </div>
 </div>
 
+<div class="overlay" id="overlayTaskEdit">
+  <div class="modal">
+    <h2 class="serif">Sửa thông tin buổi trực</h2>
+    <form id="taskEditForm">
+      <div class="modal-scroll">
+        <input type="hidden" id="tk_id">
+        <div class="field"><label>Trợ giảng phụ trách</label><input type="text" id="tk_name" required></div>
+        <div class="field"><label>Lớp</label><input type="text" id="tk_className"></div>
+        <div class="field"><label>Tuần</label><input type="text" id="tk_week"></div>
+        <div class="field"><label>Ngày</label><input type="date" id="tk_date"></div>
+        <div class="field"><label>Cơ sở</label><input type="text" id="tk_branch"></div>
+        <div class="field"><label>Ca trực</label><input type="text" id="tk_shift"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="taskEditCancelBtn">Hủy</button>
+        <button type="submit" class="btn-primary">Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="overlay" id="overlayKbg">
   <div class="modal">
     <h2 class="serif" id="kbgModalTitle">Thêm khai giảng / bế giảng thủ công</h2>
@@ -2884,6 +2905,10 @@ function renderTaskList(){
   wrap.innerHTML = list.map(t => {
     const pct = taskProgress(t);
     const pillClass = pct===100 ? 'ok' : (pct<80 ? 'miss' : '');
+    const bItems = asArray(t.b);
+    const mid = Math.ceil(bItems.length/2);
+    const renderHalf = (items, offset) => items.map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','b',${i+offset})">
+            <span class="mark">${c.done?'✓':''}</span>${escapeHtml(c.label)}</div>`).join('');
     return `
     <div class="task-card">
       <div class="task-head">
@@ -2892,23 +2917,17 @@ function renderTaskList(){
         <div class="right">
           ${t.tag ? `<span class="pct-pill miss">${t.tag}</span>` : ''}
           <span class="pct-pill ${pillClass}">${pct}%</span>
-          <button class="icon-btn danger" onclick="removeTask('${t.id}')">🗑</button>
+          <button class="icon-btn" onclick="openEditTask('${t.id}')" title="Sửa">✏️</button>
+          <button class="icon-btn danger" onclick="removeTask('${t.id}')" title="Xóa">🗑</button>
         </div>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
       <div class="task-toggle" onclick="toggleTaskDetail('${t.id}')">${t._open ? 'Ẩn' : 'Xem'} checklist chi tiết</div>
       ${t._open ? `
       <div class="checklist-wrap">
-        <div>
-          <div class="checklist-col-title">RIÊNG LỚP KHAI GIẢNG</div>
-          ${asArray(t.a).map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','a',${i})">
-            <span class="mark">${c.done?'✓':''}</span>${escapeHtml(c.label)}</div>`).join('')}
-        </div>
-        <div>
-          <div class="checklist-col-title">NHIỆM VỤ TRONG CA TRỰC</div>
-          ${asArray(t.b).map((c,i)=>`<div class="check-item ${c.done?'done':''}" onclick="toggleCheck('task','${t.id}','b',${i})">
-            <span class="mark">${c.done?'✓':''}</span>${escapeHtml(c.label)}</div>`).join('')}
-        </div>
+        <div class="checklist-col-title" style="grid-column:1/-1;">NHIỆM VỤ TRONG CA TRỰC</div>
+        <div>${renderHalf(bItems.slice(0, mid), 0)}</div>
+        <div>${renderHalf(bItems.slice(mid), mid)}</div>
       </div>` : ''}
     </div>`;
   }).join('');
@@ -2918,6 +2937,27 @@ window.toggleTaskDetail = function(id){
   t._open = !t._open;
   renderTaskList();
 };
+window.openEditTask = function(id){
+  const t = sessionTasks.find(x=>x.id===id); if(!t) return;
+  $('#tk_id').value = t.id;
+  $('#tk_name').value = t.name||''; $('#tk_className').value = t.className||'';
+  $('#tk_week').value = t.week||''; $('#tk_date').value = t.date||'';
+  $('#tk_branch').value = t.branch||''; $('#tk_shift').value = t.shift||'';
+  document.getElementById('overlayTaskEdit').classList.add('show');
+};
+document.getElementById('taskEditCancelBtn').onclick = () => document.getElementById('overlayTaskEdit').classList.remove('show');
+document.getElementById('taskEditForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const id = $('#tk_id').value;
+  const t = sessionTasks.find(x=>x.id===id); if(!t) return;
+  t.name = $('#tk_name').value.trim(); t.className = $('#tk_className').value.trim();
+  t.week = $('#tk_week').value.trim(); t.date = $('#tk_date').value.trim();
+  t.branch = $('#tk_branch').value.trim(); t.shift = $('#tk_shift').value.trim();
+  document.getElementById('overlayTaskEdit').classList.remove('show');
+  renderTaskList();
+  await storSet(TASKS_KEY, sessionTasks);
+  toast('Đã cập nhật.');
+});
 window.toggleCheck = async function(kind, id, group, idx){
   if(kind==='task'){
     const t = sessionTasks.find(x=>x.id===id); if(!t) return;
