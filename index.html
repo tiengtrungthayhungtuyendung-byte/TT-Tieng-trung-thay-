@@ -2661,9 +2661,37 @@ async function loadAssistantsModule(){
   kbgItems = await storGet(KBG_KEY, seedKbg);
   shiftRequests = await storGet(SHIFT_KEY, seedShiftReq);
   rewardRecords = await storGet(REWARD_KEY, seedReward);
+  const cleaned = cleanupBogusChecklistItems();
   renderAssistantsAll();
   await loadTaskSheetSync();
   await loadKbgSheetSync();
+  if(cleaned) toast('Đã tự dọn dẹp các mục checklist bị lỗi tên cột trống từ lần đồng bộ trước.');
+}
+
+function cleanupBogusChecklistItems(){
+  const isBogus = c => /^_\d+$/.test(String(c.label||'').trim());
+  let changed = false;
+  sessionTasks.forEach(t => {
+    ['a','b'].forEach(key => {
+      if(Array.isArray(t[key])){
+        const before = t[key].length;
+        t[key] = t[key].filter(c => !isBogus(c));
+        if(t[key].length !== before) changed = true;
+      }
+    });
+  });
+  kbgItems.forEach(k => {
+    if(Array.isArray(k.checklist)){
+      const before = k.checklist.length;
+      k.checklist = k.checklist.filter(c => !isBogus(c));
+      if(k.checklist.length !== before) changed = true;
+    }
+  });
+  if(changed){
+    storSet(TASKS_KEY, sessionTasks);
+    storSet(KBG_KEY, kbgItems);
+  }
+  return changed;
 }
 
 const BRANCHES = ['Nguyễn Trãi','Cầu Giấy','Láng'];
@@ -3924,7 +3952,7 @@ function findColumnKey(row, ...keywordGroups){
 function valAt(row, key){ return key ? String(row[key]==null?'':row[key]).trim() : ''; }
 function isBlankHeader(k){
   const s = String(k||'').trim();
-  return s === '' || /^__empty/i.test(s) || /^column\d*$/i.test(s) || /^unnamed/i.test(s);
+  return s === '' || /^__empty/i.test(s) || /^column\d*$/i.test(s) || /^unnamed/i.test(s) || /^_\d+$/.test(s);
 }
 function buildChecklistFromRemaining(row, usedKeys){
   const keys = Object.keys(row).filter(k => !usedKeys.includes(k) && !isBlankHeader(k) && String(row[k]).trim() !== 'undefined');
