@@ -2119,6 +2119,12 @@ window.removeBenefitPolicy = async function(id){
   toast('Đã xóa chính sách.');
 };
 
+function statusPillClass(status){
+  const s = normKey(status);
+  if(s.includes('dang lam') || s.includes('dang hoc') || s.includes('dang tuyen') || s.includes('dang cong tac')) return 'du';
+  if(s.includes('da nghi') || s.includes('nghi viec') || s.includes('da ket thuc')) return 'thieu';
+  return 'status';
+}
 function fmtDate(iso){
   if(!iso) return '—';
   const [y,m,d] = iso.split('-');
@@ -2181,7 +2187,7 @@ function render(){
       <td>${escapeHtml(t.phone||'—')}</td>
       <td><span class="pill ${t.doc==='Đủ'?'du':'thieu'}">${t.doc}</span></td>
       <td>${t.format}</td>
-      <td><span class="pill status">${t.status}</span></td>
+      <td><span class="pill ${statusPillClass(t.status)}">${t.status}</span></td>
       <td>${escapeHtml(degreeHskLabel(t))}</td>
       <td>
         <div class="row-actions">
@@ -2764,7 +2770,7 @@ function renderAsstTable(){
       <td>${escapeHtml(a.shift||'—')}</td>
       <td>${escapeHtml(a.salary||'—')}</td>
       <td><input type="text" value="${escapeHtml(a.shiftCount||'')}" placeholder="—" style="width:90px;padding:5px 7px;border-radius:6px;border:1px solid var(--line);font-size:12.5px;" onchange="updateAsstShiftCount('${a.id}', this.value)"></td>
-      <td><span class="pill status">${a.status}</span></td>
+      <td><span class="pill ${statusPillClass(a.status)}">${a.status}</span></td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" onclick="openEditAsst('${a.id}')" title="Sửa">✏️</button>
@@ -5004,7 +5010,7 @@ function renderStaffTable(){
       <td>${escapeHtml(s.dept||'—')}</td>
       <td>${escapeHtml(s.phone||'—')}</td>
       <td>${staffFormatLabel(s.format)}</td>
-      <td><span class="pill status">${s.status}</span></td>
+      <td><span class="pill ${statusPillClass(s.status)}">${s.status}</span></td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" onclick="openEditStaff('${s.id}')" title="Sửa">✏️</button>
