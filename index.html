@@ -874,6 +874,16 @@
           <button class="btn-primary" id="scheduleImportBtn">↑ Nhập lịch giảng dạy hiện tại</button>
         </div>
       </div>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-title">🔄 Đồng bộ tự động từ Google Sheets</div>
+        <div class="hint-note">Dán link Google Sheet đã "Publish to web" dạng CSV (cột <b>LỚP, CA, THỨ 2...CHỦ NHẬT</b>) — mỗi khi mở tab này, hệ thống sẽ tự đọc dữ liệu mới nhất từ Sheet, không cần tải file lên tay nữa.</div>
+        <div class="quick-add" style="margin-bottom:0;">
+          <input type="text" id="scheduleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" style="flex:1;min-width:260px;">
+          <button class="btn-ghost" id="scheduleSheetSaveBtn">💾 Lưu link</button>
+          <button class="btn-primary" id="scheduleSheetSyncBtn">🔄 Đồng bộ ngay</button>
+        </div>
+        <div class="hint-note" id="scheduleSheetStatus" style="margin-top:8px;margin-bottom:0;"></div>
+      </div>
       <div class="stat-grid" id="ttStatGrid" style="grid-template-columns:repeat(4,1fr);"></div>
       <div class="panel-grid">
         <div class="panel">
@@ -4130,6 +4140,7 @@ async function loadTimetableModule(){
   scheduleRows = await storGet(SCHEDULE_ROWS_KEY, []);
   computeHoursByTeacher();
   renderTimetable();
+  await loadScheduleSheetSync();
 }
 function renderTimetable(){
   const totalDaySlots = scheduleNeeds.reduce((s,n)=>s+asArray(n.days).length,0);
@@ -4197,38 +4208,88 @@ document.getElementById('needForm').addEventListener('submit', async (e)=>{
   toast('Đã thêm buổi cần xếp.');
 });
 
+/* applyScheduleRows: logic dùng chung cho cả nhập file tay (scheduleImportBtn)
+   và đồng bộ tự động từ Google Sheets (syncScheduleFromGoogleSheet) bên dưới,
+   để hai đường nhập dữ liệu luôn suy ra lịch bận GV giống hệt nhau. */
+function applyScheduleRows(rows, mode){
+  if(mode === 'replace') scheduleRows.length = 0;
+  let count = 0;
+  rows.forEach(row => {
+    const className = pickField(row, 'LỚP','Lớp','Mã lớp');
+    const session = pickField(row, 'CA','Ca');
+    const entry = {className, session};
+    let hasAny = false;
+    WEEKDAY_KEYS.forEach((dk, i) => {
+      const v = pickField(row, WEEKDAY_LABELS[i]);
+      entry[dk] = v;
+      if(v) hasAny = true;
+    });
+    if(!className && !session && !hasAny) return;
+    scheduleRows.push(entry);
+    count++;
+  });
+  computeHoursByTeacher();
+  renderTimetable();
+  renderSalary();
+  renderOverview();
+  storSet(SCHEDULE_ROWS_KEY, scheduleRows);
+  return count;
+}
+
 document.getElementById('scheduleImportBtn').addEventListener('click', ()=>{
   openImportModal({
     title: 'Nhập lịch giảng dạy hiện tại',
     desc: `Tải lên file .csv hoặc .xlsx có các cột <b>LỚP, CA, THỨ 2...CHỦ NHẬT</b> (mỗi ô Thứ ghi tên GV dạy hôm đó, dạng "C.Tên" hoặc "T.Tên"). Hệ thống sẽ tự suy ra lịch bận của từng giáo viên — không cần hỏi lại từng người.`,
     headers: ['LỚP','CA','THỨ 2','THỨ 3','THỨ 4','THỨ 5','THỨ 6','THỨ 7','CHỦ NHẬT'],
     templateName: 'mau-lich-giang-day.csv',
-    onRows: (rows, mode) => {
-      if(mode === 'replace') scheduleRows.length = 0;
-      let count = 0;
-      rows.forEach(row => {
-        const className = pickField(row, 'LỚP','Lớp','Mã lớp');
-        const session = pickField(row, 'CA','Ca');
-        const entry = {className, session};
-        let hasAny = false;
-        WEEKDAY_KEYS.forEach((dk, i) => {
-          const v = pickField(row, WEEKDAY_LABELS[i]);
-          entry[dk] = v;
-          if(v) hasAny = true;
-        });
-        if(!className && !session && !hasAny) return;
-        scheduleRows.push(entry);
-        count++;
-      });
-      computeHoursByTeacher();
-      renderTimetable();
-      renderSalary();
-      renderOverview();
-      storSet(SCHEDULE_ROWS_KEY, scheduleRows);
-      return count;
-    }
+    onRows: (rows, mode) => applyScheduleRows(rows, mode)
   });
 });
+
+/* ---- Đồng bộ tự động từ Google Sheets (Xếp lịch giảng dạy) ---- */
+const SCHEDULE_SHEET_URL_KEY = 'schedule-sheet-url';
+let scheduleSheetUrl = '';
+
+async function loadScheduleSheetSync(){
+  scheduleSheetUrl = await storGet(SCHEDULE_SHEET_URL_KEY, '');
+  if(scheduleSheetUrl) $('#scheduleSheetUrl').value = scheduleSheetUrl;
+  if(scheduleSheetUrl) await syncScheduleFromGoogleSheet(true);
+}
+function setScheduleSheetStatus(msg, isError){
+  const el = document.getElementById('scheduleSheetStatus');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red-deep)' : 'var(--green)';
+}
+document.getElementById('scheduleSheetSaveBtn').addEventListener('click', async ()=>{
+  scheduleSheetUrl = $('#scheduleSheetUrl').value.trim();
+  await storSet(SCHEDULE_SHEET_URL_KEY, scheduleSheetUrl);
+  toast('Đã lưu link Google Sheets.');
+  if(scheduleSheetUrl) await syncScheduleFromGoogleSheet();
+});
+document.getElementById('scheduleSheetSyncBtn').addEventListener('click', ()=> syncScheduleFromGoogleSheet());
+
+async function syncScheduleFromGoogleSheet(silent){
+  const url = $('#scheduleSheetUrl').value.trim();
+  if(!url){ if(!silent) toast('Vui lòng dán link Google Sheets trước.'); return; }
+  if(typeof Papa === 'undefined'){ setScheduleSheetStatus('Không tải được thư viện đọc CSV.', true); return; }
+  setScheduleSheetStatus('Đang đồng bộ…', false);
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+    const rows = parsed.data || [];
+    const count = applyScheduleRows(rows, 'replace');
+    const now = new Date().toLocaleTimeString('vi-VN');
+    if(count === 0){
+      setScheduleSheetStatus(`⚠ Đồng bộ lúc ${now} nhưng không nhận diện được dòng nào — kiểm tra lại Sheet có đúng cột LỚP, CA, THỨ 2...CHỦ NHẬT không.`, true);
+    }else{
+      setScheduleSheetStatus(`✓ Đồng bộ lúc ${now} — ${count} dòng lịch dạy.`, false);
+    }
+  }catch(err){
+    setScheduleSheetStatus('⚠ Không đồng bộ được — kiểm tra lại link đã đúng định dạng CSV chưa (Sheet đã "Publish to web"/chia sẻ "Anyone with the link"), hoặc kiểm tra kết nối mạng.', true);
+  }
+}
 
 /* ================= GHI NHẬN & THĂM HỎI ================= */
 const CARE_KEY = 'care-records';
