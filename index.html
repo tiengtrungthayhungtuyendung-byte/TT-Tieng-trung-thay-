@@ -888,7 +888,8 @@
       <div class="panel-grid">
         <div class="panel">
           <div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Tải giờ dạy theo GV (tự suy ra từ lịch đã nhập)</div>
-          <div class="hint-note">Xếp theo thứ tự thiếu giờ nhiều nhất trước — đây là những GV nên được ưu tiên xếp thêm lớp khi có slot mới.</div>
+          <div class="hint-note">Xếp theo thứ tự thiếu giờ nhiều nhất trước — đây là những GV nên được ưu tiên xếp thêm lớp khi có slot mới. Số giờ tính theo đúng khung giờ ghi trong cột CA của từng buổi (không làm tròn 2h/buổi).</div>
+          <div class="hint-note" id="ttEstimatedNote" style="color:var(--red-deep);"></div>
           <div id="hoursList"></div>
         </div>
         <div class="panel">
@@ -1376,6 +1377,23 @@
       <div class="field"><label>Các buổi (cách nhau dấu phẩy)</label><input type="text" id="n_days" placeholder="VD: Thứ 3, Thứ 5"></div></div>
       <div class="modal-actions">
         <button type="button" class="btn-ghost" id="needCancelBtn">Hủy</button>
+        <button type="submit" class="btn-primary">Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="overlayTeacherTarget">
+  <div class="modal">
+    <h2 class="serif">Định mức giờ dạy</h2>
+    <form id="teacherTargetForm">
+      <div class="modal-scroll">
+      <div class="field"><label>Giáo viên</label><input type="text" id="tt_teacher" disabled></div>
+      <div class="field"><label>Định mức giờ / tháng</label><input type="number" id="tt_target" min="0" step="0.5" required placeholder="VD: 40"></div>
+      <div class="hint-note" style="margin:0;">Hệ thống coi GV là "Đủ giờ" khi giờ dạy thực tế trong tháng ≥ 90% của định mức này (mặc định 40h/tháng nếu chưa chỉnh).</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="teacherTargetCancelBtn">Hủy</button>
         <button type="submit" class="btn-primary">Lưu</button>
       </div>
     </form>
@@ -4112,25 +4130,104 @@ document.getElementById('feedbackImportBtn').addEventListener('click', ()=>{
 /* ================= XẾP LỊCH GIẢNG DẠY ================= */
 const NEED_KEY = 'schedule-needs';
 const SCHEDULE_ROWS_KEY = 'weekly-schedule-rows';
+const TEACHER_TARGET_KEY = 'teacher-hour-targets';
+const DEFAULT_TARGET_HOURS = 40;
 let scheduleNeeds = [];
 let scheduleRows = []; // [{className, session, mon,tue,wed,thu,fri,sat,sun}]
 let hoursByTeacher = [];
+let teacherHourTargets = {}; // {tenGV: định mức giờ/tháng riêng}
+function targetHoursFor(short){
+  const v = teacherHourTargets[short];
+  return (typeof v === 'number' && v > 0) ? v : DEFAULT_TARGET_HOURS;
+}
 const WEEKDAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
 const WEEKDAY_LABELS = ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'];
 
+/* ---- Đọc số giờ THẬT của từng buổi từ cột CA, không làm tròn 2h/buổi ----
+   Cột CA có thể là:
+   - "9:00 - 11:00" (1 khung giờ áp dụng cho mọi thứ có GV trong dòng)
+   - "8h30-10h00" / "21: 15- 22:45" (kiểu giờ viết khác nhau)
+   - Nhiều dòng, mỗi dòng gắn với 1 số thứ cụ thể, ví dụ lớp VIP:
+       "T2 - T4: 14:30-16:00\nT6 : 9:30 - 11:00"   → T2,T4 = 14:30-16:00 ; T6 = 9:30-11:00
+       "T3 - T5 - T7\n19:00 - 20:30"               → dòng thứ tách riêng, dòng giờ áp dụng chung cho các thứ đó
+   "T2 - T4" ở đây nghĩa là liệt kê 2 thứ cụ thể (Thứ 2 và Thứ 4), không phải khoảng từ Thứ 2 đến Thứ 4. */
+function parseTimeToken(tok){
+  if(!tok) return null;
+  tok = String(tok).trim();
+  let m = tok.match(/^(\d{1,2})\s*[:h]\s*(\d{2})$/i);
+  if(m) return parseInt(m[1],10)*60 + parseInt(m[2],10);
+  m = tok.match(/^(\d{1,2})\s*h\s*$/i);
+  if(m) return parseInt(m[1],10)*60;
+  return null;
+}
+function parseTimeRangeHours(rangeStr){
+  if(!rangeStr) return null;
+  const idx = rangeStr.indexOf('-');
+  if(idx < 0) return null;
+  const start = parseTimeToken(rangeStr.slice(0, idx));
+  const end = parseTimeToken(rangeStr.slice(idx+1));
+  if(start==null || end==null) return null;
+  let diff = end - start;
+  if(diff <= 0) diff += 24*60; // phòng hờ ca qua đêm
+  return Math.round((diff/60)*100)/100;
+}
+const WEEKDAY_TOKENS = ['T2','T3','T4','T5','T6','T7','CN'];
+function parseCaDayHours(caString){
+  const map = {};
+  const defaultCandidates = [];
+  if(caString){
+    const lines = String(caString).split(/\n|\r/).map(s=>s.trim()).filter(Boolean);
+    let pendingDays = null;
+    lines.forEach(line => {
+      const withTime = line.match(/^((?:T[2-7]|CN)(?:\s*[-,]\s*(?:T[2-7]|CN))*)\s*:\s*(.+)$/i);
+      if(withTime){
+        const days = withTime[1].split(/[-,]/).map(s=>s.trim().toUpperCase()).filter(Boolean);
+        const hrs = parseTimeRangeHours(withTime[2]);
+        if(hrs != null) days.forEach(d => { map[d] = hrs; });
+        pendingDays = null;
+        return;
+      }
+      const dayOnly = line.match(/^((?:T[2-7]|CN)(?:\s*[-,]\s*(?:T[2-7]|CN))*)$/i);
+      if(dayOnly){
+        pendingDays = dayOnly[1].split(/[-,]/).map(s=>s.trim().toUpperCase()).filter(Boolean);
+        return;
+      }
+      const hrs = parseTimeRangeHours(line);
+      if(hrs != null){
+        if(pendingDays){ pendingDays.forEach(d => { map[d] = hrs; }); pendingDays = null; }
+        else defaultCandidates.push(hrs);
+      }
+    });
+  }
+  const defaultHours = defaultCandidates.length ? (defaultCandidates.reduce((a,b)=>a+b,0)/defaultCandidates.length) : null;
+  return {map, defaultHours};
+}
+function hoursForSession(caString, weekdayIndex){
+  const parsed = parseCaDayHours(caString);
+  const token = WEEKDAY_TOKENS[weekdayIndex];
+  if(parsed.map[token] != null) return {hours: parsed.map[token], exact:true};
+  if(parsed.defaultHours != null) return {hours: parsed.defaultHours, exact:true};
+  return {hours: 2, exact:false}; // không đọc được giờ từ CA -> tạm tính 2h, có đếm riêng để báo minh bạch
+}
 function computeHoursByTeacher(){
-  const counts = {};
+  const sums = {};
   scheduleRows.forEach(row => {
-    WEEKDAY_KEYS.forEach(dk => {
+    WEEKDAY_KEYS.forEach((dk, i) => {
       const name = (row[dk] || '').trim();
-      if(name) counts[name] = (counts[name] || 0) + 1;
+      if(!name) return;
+      const {hours, exact} = hoursForSession(row.session, i);
+      if(!sums[name]) sums[name] = {hoursWeek:0, sessions:0, estimatedSessions:0};
+      sums[name].hoursWeek += hours;
+      sums[name].sessions += 1;
+      if(!exact) sums[name].estimatedSessions += 1;
     });
   });
-  hoursByTeacher = Object.keys(counts).sort().map(short => {
-    const sessionsWeek = counts[short];
-    const hoursWeek = sessionsWeek * 2; // giả định mỗi buổi 2 giờ
-    const hoursMonth = Math.round(hoursWeek * 4.33);
-    return {short, hoursWeek, hoursMonth};
+  hoursByTeacher = Object.keys(sums).sort().map(short => {
+    const s = sums[short];
+    const hoursWeek = Math.round(s.hoursWeek*100)/100;
+    const hoursMonth = Math.round(hoursWeek * 4.33 * 100)/100;
+    const sessionsMonth = Math.round(s.sessions * 4.33);
+    return {short, hoursWeek, hoursMonth, sessions:s.sessions, sessionsMonth, estimatedSessions:s.estimatedSessions};
   });
 }
 
@@ -4138,21 +4235,22 @@ const seedNeeds = [];
 async function loadTimetableModule(){
   scheduleNeeds = await storGet(NEED_KEY, seedNeeds);
   scheduleRows = await storGet(SCHEDULE_ROWS_KEY, []);
+  teacherHourTargets = await storGet(TEACHER_TARGET_KEY, {});
   computeHoursByTeacher();
   renderTimetable();
   await loadScheduleSheetSync();
 }
 function renderTimetable(){
   const totalDaySlots = scheduleNeeds.reduce((s,n)=>s+asArray(n.days).length,0);
-  const thresholdMonth = 0.9 * 40; // 36h/tháng
-  const thieu = hoursByTeacher.filter(t=>t.hoursMonth < thresholdMonth).length;
+  const isEnough = t => t.hoursMonth >= targetHoursFor(t.short) * 0.9;
+  const thieu = hoursByTeacher.filter(t=>!isEnough(t)).length;
   const du = hoursByTeacher.length - thieu;
   document.getElementById('ttStatLine').innerHTML =
     `<b>${hoursByTeacher.length}</b> GV có lịch · <b>${thieu}</b> thiếu giờ · <b>${totalDaySlots}</b> buổi đang cần xếp GV`;
 
   const cards = [
     {icon:'schedule', num:hoursByTeacher.length, lbl:'GV đang có lịch dạy'},
-    {icon:'ban', num:thieu, lbl:'GV thiếu giờ (dưới 90% x 40h)', sub:'cần xếp thêm lớp'},
+    {icon:'ban', num:thieu, lbl:'GV thiếu giờ (dưới 90% định mức riêng)', sub:'cần xếp thêm lớp'},
     {icon:'teachers', num:du, lbl:'GV đủ giờ'},
     {icon:'overview', num:totalDaySlots, lbl:'Buổi đang cần xếp GV'}
   ];
@@ -4161,13 +4259,27 @@ function renderTimetable(){
       <div><div class="num">${c.num}</div><div class="lbl">${c.lbl}</div>${c.sub?`<div class="sub">${c.sub}</div>`:''}</div>
     </div>`).join('');
 
+  const totalEstimated = hoursByTeacher.reduce((s,t)=>s+(t.estimatedSessions||0),0);
+  const estimatedNote = document.getElementById('ttEstimatedNote');
+  if(estimatedNote){
+    estimatedNote.textContent = totalEstimated > 0
+      ? `⚠ Có ${totalEstimated} buổi không đọc được khung giờ từ cột CA (ô CA trống hoặc sai định dạng) — các buổi này đang tạm tính 2h/buổi, sửa lại cột CA trong Sheet để có số chính xác.`
+      : '';
+  }
+
   const sorted = hoursByTeacher.slice().sort((a,b)=>a.hoursMonth-b.hoursMonth);
-  document.getElementById('hoursList').innerHTML = sorted.map(t=>`
+  document.getElementById('hoursList').innerHTML = sorted.map(t=>{
+    const target = targetHoursFor(t.short);
+    const enough = isEnough(t);
+    return `
     <div class="hours-row">
-      <div><div class="who">${t.short}</div><div class="meta">${t.hoursWeek}h/tuần · ~${t.hoursMonth}h/tháng</div></div>
-      <span class="pill thieu">${t.hoursMonth < thresholdMonth ? 'Thiếu giờ' : 'Đủ giờ'}</span>
-    </div>
-  `).join('');
+      <div><div class="who">${escapeHtml(t.short)}${t.estimatedSessions ? ` <span class="sub" title="${t.estimatedSessions} buổi không đọc được giờ, đang tạm tính 2h">*</span>` : ''}</div><div class="meta">${t.hoursWeek}h/tuần · ~${t.hoursMonth}h/tháng · định mức ${target}h/tháng</div></div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="pill ${enough ? 'du' : 'thieu'}">${enough ? 'Đủ giờ' : 'Thiếu giờ'}</span>
+        <button type="button" class="icon-btn edit-target-btn" data-teacher="${escapeHtml(t.short)}" data-target="${target}" title="Sửa định mức giờ của ${escapeHtml(t.short)}">✏️</button>
+      </div>
+    </div>`;
+  }).join('');
 
   document.getElementById('needList').innerHTML = scheduleNeeds.map(n => `
     <div class="need-card">
@@ -4206,6 +4318,31 @@ document.getElementById('needForm').addEventListener('submit', async (e)=>{
   renderTimetable();
   await storSet(NEED_KEY, scheduleNeeds);
   toast('Đã thêm buổi cần xếp.');
+});
+
+/* ---- Sửa định mức giờ/tháng riêng theo từng GV ---- */
+let editingTeacherTarget = null;
+document.getElementById('hoursList').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.edit-target-btn');
+  if(!btn) return;
+  editingTeacherTarget = btn.dataset.teacher;
+  $('#tt_teacher').value = editingTeacherTarget;
+  $('#tt_target').value = btn.dataset.target;
+  document.getElementById('overlayTeacherTarget').classList.add('show');
+});
+document.getElementById('teacherTargetCancelBtn').onclick = () => document.getElementById('overlayTeacherTarget').classList.remove('show');
+document.getElementById('teacherTargetForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  if(!editingTeacherTarget) return;
+  const val = parseFloat($('#tt_target').value);
+  if(!(val > 0)){ toast('Định mức giờ phải lớn hơn 0.'); return; }
+  if(val === DEFAULT_TARGET_HOURS) delete teacherHourTargets[editingTeacherTarget];
+  else teacherHourTargets[editingTeacherTarget] = val;
+  document.getElementById('overlayTeacherTarget').classList.remove('show');
+  renderTimetable();
+  await storSet(TEACHER_TARGET_KEY, teacherHourTargets);
+  toast(`Đã lưu định mức ${val}h/tháng cho ${editingTeacherTarget}.`);
+  editingTeacherTarget = null;
 });
 
 /* applyScheduleRows: logic dùng chung cho cả nhập file tay (scheduleImportBtn)
@@ -4677,7 +4814,7 @@ function renderSalary(){
   }
   let totalSessions=0, totalAmount=0;
   const rows = hoursByTeacher.map(t=>{
-    const sessions = Math.round(t.hoursMonth/2);
+    const sessions = t.sessionsMonth;
     const amount = sessions * defaultRate;
     totalSessions += sessions; totalAmount += amount;
     return `<div class="salary-row"><span>${t.short}</span><span>${sessions} buổi</span><span>${amount.toLocaleString('vi-VN')} đ</span></div>`;
@@ -4688,7 +4825,7 @@ function renderSalary(){
 salMonthSel.addEventListener('change', renderSalary);
 salYearSel.addEventListener('change', renderSalary);
 document.getElementById('salaryExportBtn').addEventListener('click', ()=>{
-  const rows = hoursByTeacher.map(t=>[t.short, Math.round(t.hoursMonth/2)]);
+  const rows = hoursByTeacher.map(t=>[t.short, t.sessionsMonth]);
   downloadXlsx('luong-giao-vien.xlsx', ['Giáo viên','Số buổi'], rows);
 });
 
