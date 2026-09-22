@@ -1388,7 +1388,10 @@
     <h2 class="serif">Định mức giờ dạy</h2>
     <form id="teacherTargetForm">
       <div class="modal-scroll">
-      <div class="field"><label>Giáo viên</label><input type="text" id="tt_teacher" disabled></div>
+      <div class="field"><label>Tên hiển thị (theo lịch dạy)</label><input type="text" id="tt_teacher" list="ttTeacherOptions" required>
+        <datalist id="ttTeacherOptions"></datalist>
+      </div>
+      <div class="hint-note" style="margin:0;">Đổi tên ở đây sẽ áp dụng cho toàn bộ các buổi dạy của GV này (gộp về 1 tên duy nhất) — kể cả những lần đồng bộ lại từ Google Sheets sau này, để tên luôn khớp với hồ sơ trong mục "Giáo viên".</div>
       <div class="field"><label>Định mức giờ / tháng</label><input type="number" id="tt_target" min="0" step="0.5" required placeholder="VD: 40"></div>
       <div class="hint-note" style="margin:0;">Hệ thống coi GV là "Đủ giờ" khi giờ dạy thực tế trong tháng ≥ 90% của định mức này (mặc định 40h/tháng nếu chưa chỉnh).</div>
       </div>
@@ -4131,11 +4134,18 @@ document.getElementById('feedbackImportBtn').addEventListener('click', ()=>{
 const NEED_KEY = 'schedule-needs';
 const SCHEDULE_ROWS_KEY = 'weekly-schedule-rows';
 const TEACHER_TARGET_KEY = 'teacher-hour-targets';
+const TEACHER_ALIAS_KEY = 'teacher-name-aliases';
 const DEFAULT_TARGET_HOURS = 40;
 let scheduleNeeds = [];
 let scheduleRows = []; // [{className, session, mon,tue,wed,thu,fri,sat,sun}]
 let hoursByTeacher = [];
 let teacherHourTargets = {}; // {tenGV: định mức giờ/tháng riêng}
+let teacherNameAliases = {}; // {tên thô trong Sheet: tên chuẩn muốn dùng} — áp dụng mỗi lần nhập/đồng bộ để tên luôn nhất quán
+function canonicalTeacherName(raw){
+  const t = (raw||'').trim();
+  if(!t) return t;
+  return teacherNameAliases[t] || t;
+}
 function targetHoursFor(short){
   const v = teacherHourTargets[short];
   return (typeof v === 'number' && v > 0) ? v : DEFAULT_TARGET_HOURS;
@@ -4236,6 +4246,7 @@ async function loadTimetableModule(){
   scheduleNeeds = await storGet(NEED_KEY, seedNeeds);
   scheduleRows = await storGet(SCHEDULE_ROWS_KEY, []);
   teacherHourTargets = await storGet(TEACHER_TARGET_KEY, {});
+  teacherNameAliases = await storGet(TEACHER_ALIAS_KEY, {});
   computeHoursByTeacher();
   renderTimetable();
   await loadScheduleSheetSync();
@@ -4320,12 +4331,13 @@ document.getElementById('needForm').addEventListener('submit', async (e)=>{
   toast('Đã thêm buổi cần xếp.');
 });
 
-/* ---- Sửa định mức giờ/tháng riêng theo từng GV ---- */
+/* ---- Sửa định mức giờ/tháng + đổi/gộp tên riêng theo từng GV ---- */
 let editingTeacherTarget = null;
 document.getElementById('hoursList').addEventListener('click', (e)=>{
   const btn = e.target.closest('.edit-target-btn');
   if(!btn) return;
   editingTeacherTarget = btn.dataset.teacher;
+  document.getElementById('ttTeacherOptions').innerHTML = teachers.map(t=>`<option value="${escapeHtml(t.name)}">`).join('');
   $('#tt_teacher').value = editingTeacherTarget;
   $('#tt_target').value = btn.dataset.target;
   document.getElementById('overlayTeacherTarget').classList.add('show');
@@ -4334,14 +4346,35 @@ document.getElementById('teacherTargetCancelBtn').onclick = () => document.getEl
 document.getElementById('teacherTargetForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   if(!editingTeacherTarget) return;
+  const oldName = editingTeacherTarget;
+  const newName = $('#tt_teacher').value.trim();
+  if(!newName){ toast('Tên giáo viên không được để trống.'); return; }
   const val = parseFloat($('#tt_target').value);
   if(!(val > 0)){ toast('Định mức giờ phải lớn hơn 0.'); return; }
-  if(val === DEFAULT_TARGET_HOURS) delete teacherHourTargets[editingTeacherTarget];
-  else teacherHourTargets[editingTeacherTarget] = val;
+
+  let renamed = false;
+  if(newName !== oldName){
+    renamed = true;
+    teacherNameAliases[oldName] = newName;
+    scheduleRows.forEach(row => {
+      WEEKDAY_KEYS.forEach(dk => { if((row[dk]||'').trim() === oldName) row[dk] = newName; });
+    });
+    if(teacherHourTargets[oldName] != null) delete teacherHourTargets[oldName];
+    await storSet(SCHEDULE_ROWS_KEY, scheduleRows);
+    await storSet(TEACHER_ALIAS_KEY, teacherNameAliases);
+  }
+
+  if(val === DEFAULT_TARGET_HOURS) delete teacherHourTargets[newName];
+  else teacherHourTargets[newName] = val;
+
   document.getElementById('overlayTeacherTarget').classList.remove('show');
+  computeHoursByTeacher();
   renderTimetable();
+  renderSalary();
   await storSet(TEACHER_TARGET_KEY, teacherHourTargets);
-  toast(`Đã lưu định mức ${val}h/tháng cho ${editingTeacherTarget}.`);
+  toast(renamed
+    ? `Đã đổi tên "${oldName}" → "${newName}" (áp dụng cho mọi buổi dạy, kể cả lần đồng bộ sau) và lưu định mức ${val}h/tháng.`
+    : `Đã lưu định mức ${val}h/tháng cho ${newName}.`);
   editingTeacherTarget = null;
 });
 
@@ -4357,7 +4390,7 @@ function applyScheduleRows(rows, mode){
     const entry = {className, session};
     let hasAny = false;
     WEEKDAY_KEYS.forEach((dk, i) => {
-      const v = pickField(row, WEEKDAY_LABELS[i]);
+      const v = canonicalTeacherName(pickField(row, WEEKDAY_LABELS[i]));
       entry[dk] = v;
       if(v) hasAny = true;
     });
