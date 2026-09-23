@@ -814,6 +814,16 @@
       </div>
 
       <div class="subview" id="class-sub-list">
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-title">🔄 Đồng bộ tự động từ Google Sheets</div>
+          <div class="hint-note">Dán link Google Sheet lịch giảng dạy đã "Publish to web" dạng CSV (cùng file dùng cho tab Xếp lịch giảng dạy cũng được) — mỗi khi mở tab này, hệ thống tự đọc lớp mới/lịch mới từ Sheet, không cần nhập tay. Lớp đã có sẵn trong danh sách chỉ được cập nhật Cơ sở/Giờ học/GV phụ trách theo Sheet — <b>Trạng thái và Sĩ số bạn tự đặt sẽ được giữ nguyên</b>, không bị ghi đè.</div>
+          <div class="quick-add" style="margin-bottom:0;">
+            <input type="text" id="classSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" style="flex:1;min-width:260px;">
+            <button class="btn-ghost" id="classSheetSaveBtn">💾 Lưu link</button>
+            <button class="btn-primary" id="classSheetSyncBtn">🔄 Đồng bộ ngay</button>
+          </div>
+          <div class="hint-note" id="classSheetStatus" style="margin-top:8px;margin-bottom:0;"></div>
+        </div>
         <div class="toolbar-right">
           <button class="btn-ghost" id="classExportBtn">Xuất Excel</button>
           <button class="btn-ghost" id="classImportBtn">Nhập từ Excel/CSV</button>
@@ -3698,6 +3708,7 @@ async function loadClassesModule(){
   ] : [];
   attendanceRecords = await storGet(ATTEND_KEY, seedAttendance);
   renderClassesAll();
+  await loadClassSheetSync();
 }
 
 function renderClassesAll(){
@@ -3845,6 +3856,95 @@ document.getElementById('classImportBtn').addEventListener('click', ()=>{
     }
   });
 });
+
+/* ---- Đồng bộ tự động từ Google Sheets (Danh sách lớp) ----
+   Đọc trực tiếp file lịch giảng dạy hàng tuần (cùng định dạng cột với tab Xếp lịch giảng dạy:
+   LỚP, CA, THỨ 2...CHỦ NHẬT, các dòng "OFFLINE - CƠ SỞ ..." làm dòng phân cách cơ sở).
+   Với lớp đã có sẵn (so tên, không phân biệt hoa/thường/dấu), chỉ cập nhật Cơ sở/Giờ học/Ca học/
+   GV phụ trách theo Sheet — KHÔNG đụng vào Trạng thái hay Sĩ số vì đó là phần người dùng tự quản lý tay. */
+const CLASS_SHEET_URL_KEY = 'class-sheet-url';
+let classSheetUrl = '';
+async function loadClassSheetSync(){
+  classSheetUrl = await storGet(CLASS_SHEET_URL_KEY, '');
+  if(classSheetUrl) $('#classSheetUrl').value = classSheetUrl;
+  if(classSheetUrl) await syncClassesFromGoogleSheet(true);
+}
+function setClassSheetStatus(msg, isError){
+  const el = document.getElementById('classSheetStatus');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red-deep)' : 'var(--green)';
+}
+document.getElementById('classSheetSaveBtn').addEventListener('click', async ()=>{
+  classSheetUrl = $('#classSheetUrl').value.trim();
+  await storSet(CLASS_SHEET_URL_KEY, classSheetUrl);
+  toast('Đã lưu link Google Sheets.');
+  if(classSheetUrl) await syncClassesFromGoogleSheet();
+});
+document.getElementById('classSheetSyncBtn').addEventListener('click', ()=> syncClassesFromGoogleSheet());
+
+function parseClassesFromSheetRows(rows){
+  let currentBranch = '';
+  const parsed = [];
+  rows.forEach(row => {
+    const className = pickField(row, 'LỚP','Lớp','Mã lớp');
+    const ca = pickField(row, 'CA','Ca');
+    const dayTeachers = [];
+    WEEKDAY_KEYS.forEach((dk, i) => {
+      const v = canonicalTeacherName(pickField(row, WEEKDAY_LABELS[i]));
+      if(v) dayTeachers.push({dayNum: ['2','3','4','5','6','7','CN'][i], name: v});
+    });
+    if(!className && !ca && dayTeachers.length === 0){
+      // Có thể là dòng phân cách cơ sở (VD "OFFLINE - CƠ SỞ NGUYỄN TRÃI") — text nằm ở cột không tên
+      const firstVal = Object.values(row).map(v=>String(v||'').trim()).find(v=>v);
+      if(firstVal) currentBranch = firstVal;
+      return;
+    }
+    if(!className) return;
+    const uniqueTeachers = [...new Set(dayTeachers.map(d=>d.name))];
+    parsed.push({
+      name: className,
+      branch: currentBranch,
+      time: ca,
+      session: dayTeachers.map(d=>d.dayNum).join('-'),
+      teacher: uniqueTeachers[0] || '',
+      teacher2: uniqueTeachers[1] || ''
+    });
+  });
+  return parsed;
+}
+async function syncClassesFromGoogleSheet(silent){
+  const url = $('#classSheetUrl').value.trim();
+  if(!url){ if(!silent) toast('Vui lòng dán link Google Sheets trước.'); return; }
+  if(typeof Papa === 'undefined'){ setClassSheetStatus('Không tải được thư viện đọc CSV.', true); return; }
+  setClassSheetStatus('Đang đồng bộ…', false);
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const parsedRows = Papa.parse(text, {header:true, skipEmptyLines:true}).data || [];
+    const found = parseClassesFromSheetRows(parsedRows);
+    let added = 0, updated = 0;
+    found.forEach(f => {
+      const existing = classes.find(c => normKey(c.name) === normKey(f.name));
+      if(existing){
+        existing.branch = f.branch; existing.time = f.time; existing.session = f.session;
+        existing.teacher = f.teacher; existing.teacher2 = f.teacher2;
+        updated++;
+      }else{
+        classes.push({id:auid('c'), name:f.name, branch:f.branch, time:f.time, session:f.session,
+          teacher:f.teacher, teacher2:f.teacher2, siso:'', status:'Đang tuyển'});
+        added++;
+      }
+    });
+    renderClassesAll();
+    await storSet(CLASS_KEY, classes);
+    const now = new Date().toLocaleTimeString('vi-VN');
+    setClassSheetStatus(`✓ Đồng bộ lúc ${now} — ${added} lớp mới, ${updated} lớp cập nhật.`, false);
+  }catch(err){
+    setClassSheetStatus('⚠ Không đồng bộ được — kiểm tra lại link đã đúng định dạng CSV chưa (Sheet đã "Publish to web"/chia sẻ "Anyone with the link"), hoặc kiểm tra kết nối mạng.', true);
+  }
+}
+
 document.getElementById('classCancelBtn').onclick = () => {
   document.getElementById('overlayClass').classList.remove('show');
   editingClassId = null;
