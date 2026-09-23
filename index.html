@@ -4241,13 +4241,40 @@ let scheduleRows = []; // [{className, session, mon,tue,wed,thu,fri,sat,sun}]
 let hoursByTeacher = [];
 let teacherHourTargets = {}; // {tenGV: định mức giờ/tháng riêng}
 let teacherNameAliases = {}; // {tên thô trong Sheet: tên chuẩn muốn dùng} — áp dụng mỗi lần nhập/đồng bộ để tên luôn nhất quán
+function looseNameKey(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function lookupAlias(name){
+  if(teacherNameAliases[name] != null) return teacherNameAliases[name]; // khớp chính xác
+  // Khớp mềm: bỏ qua khác biệt hoa/thường và khoảng trắng thừa giữa tên thô trong Sheet
+  // và tên đã lưu lúc đổi tên trước đó (Sheet có thể gõ lại hơi khác 1 chút mỗi lần).
+  const lk = looseNameKey(name);
+  for(const k in teacherNameAliases){
+    if(looseNameKey(k) === lk) return teacherNameAliases[k];
+  }
+  return null;
+}
 function canonicalTeacherName(raw){
   const t = (raw||'').trim();
   if(!t) return t;
-  return teacherNameAliases[t] || t;
+  // Đi theo hết "chuỗi" đổi tên (VD: "C. Thảo"→"Thảo"→"Cô Thảo") để luôn ra tên mới nhất,
+  // kể cả khi giáo viên đã được đổi tên nhiều lần trước đó — không chỉ dừng ở 1 bước.
+  let cur = t;
+  const seen = new Set();
+  while(!seen.has(cur)){
+    seen.add(cur);
+    const next = lookupAlias(cur);
+    if(next == null || next === cur) break;
+    cur = next;
+  }
+  return cur;
 }
 function targetHoursFor(short){
-  const v = teacherHourTargets[short];
+  let v = teacherHourTargets[short];
+  if(!(typeof v === 'number' && v > 0)){
+    const lk = looseNameKey(short);
+    for(const k in teacherHourTargets){
+      if(looseNameKey(k) === lk){ v = teacherHourTargets[k]; break; }
+    }
+  }
   return (typeof v === 'number' && v > 0) ? v : DEFAULT_TARGET_HOURS;
 }
 const WEEKDAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
@@ -4455,6 +4482,9 @@ document.getElementById('teacherTargetForm').addEventListener('submit', async (e
   let renamed = false;
   if(newName !== oldName){
     renamed = true;
+    // Nếu tên này từng được đổi trước đó (có alias khác đang trỏ tới oldName), gộp thẳng
+    // về newName luôn, để lần đồng bộ sau khỏi bị "rớt" mất 1 nấc đổi tên cũ.
+    Object.keys(teacherNameAliases).forEach(k => { if(teacherNameAliases[k] === oldName) teacherNameAliases[k] = newName; });
     teacherNameAliases[oldName] = newName;
     scheduleRows.forEach(row => {
       WEEKDAY_KEYS.forEach(dk => { if((row[dk]||'').trim() === oldName) row[dk] = newName; });
