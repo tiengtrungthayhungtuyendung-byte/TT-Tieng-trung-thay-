@@ -505,6 +505,17 @@
         <div class="alert-chips" id="alertChips"></div>
       </div>
 
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-title">🛡️ Sao lưu &amp; khôi phục dữ liệu</div>
+        <div class="hint-note">Nên tải 1 bản sao lưu về máy định kỳ (VD: đầu mỗi tuần) để phòng khi máy chủ gặp sự cố. File tải về chứa <b>toàn bộ</b> dữ liệu của phần mềm (giáo viên, lớp học, lương, học viên, nhân viên...).</div>
+        <div class="quick-add" style="margin-bottom:0;">
+          <button class="btn-primary" id="backupExportBtn">💾 Tải bản sao lưu ngay (.json)</button>
+          <input type="file" id="backupRestoreFile" accept=".json" style="display:none;">
+          <button class="btn-ghost" id="backupRestoreBtn">♻️ Khôi phục từ file sao lưu</button>
+        </div>
+        <div class="hint-note" id="backupStatus" style="margin-top:8px;margin-bottom:0;"></div>
+      </div>
+
       <div class="stat-grid" id="statGrid"></div>
 
       <div class="panel-grid">
@@ -2706,22 +2717,107 @@ async function fbDelete(key){
 }
 
 async function storGet(key, seed){
+  let value;
   try{
-    let value = await fbGet(key);
-    if(value === null || value === undefined) throw new Error('chưa có dữ liệu');
-    if(Array.isArray(seed) && !Array.isArray(value) && typeof value === 'object'){
-      value = Object.values(value); // Firebase đôi khi trả mảng dưới dạng object — tự chuyển lại thành mảng
-    }
-    return value;
+    value = await fbGet(key);
   }catch(e){
+    // KHÔNG đọc được dữ liệu từ máy chủ (mất mạng, máy chủ lỗi, bị chặn...) — đây KHÔNG có nghĩa là
+    // dữ liệu thật không còn. TUYỆT ĐỐI không được ghi seed đè lên máy chủ trong trường hợp này,
+    // nếu không sẽ xoá mất dữ liệu thật mỗi khi có sự cố đọc tạm thời. Chỉ hiển thị tạm seed ở màn
+    // hình và báo cho người dùng biết để họ tải lại trang thay vì tưởng là dữ liệu đã mất thật.
+    console.error('storGet lỗi khi đọc "'+key+'":', e);
+    if(typeof toast === 'function'){
+      toast('⚠ Không tải được dữ liệu từ máy chủ — vui lòng kiểm tra mạng rồi tải lại trang (Ctrl+Shift+R). Dữ liệu thật trên máy chủ chưa bị thay đổi.');
+    }
+    return seed;
+  }
+  if(value === null || value === undefined){
+    // Máy chủ trả lời thành công và xác nhận key này thực sự CHƯA từng có dữ liệu
+    // (khác với trường hợp lỗi đọc ở trên) — lúc này mới an toàn để khởi tạo bằng seed.
     try{ await fbSet(key, seed); }catch(e2){}
     return seed;
   }
+  if(Array.isArray(seed) && !Array.isArray(value) && typeof value === 'object'){
+    value = Object.values(value); // Firebase đôi khi trả mảng dưới dạng object — tự chuyển lại thành mảng
+  }
+  return value;
 }
 async function storSet(key, value){
   try{ await fbSet(key, value); }
   catch(e){ toast('Không lưu được lên máy chủ dùng chung — kiểm tra kết nối mạng.'); }
 }
+
+/* ================= SAO LƯU & KHÔI PHỤC TOÀN BỘ DỮ LIỆU ================= */
+/* Danh sách TẤT CẢ các "key" dữ liệu đang dùng trong toàn bộ phần mềm — liệt kê thủ công
+   để nút sao lưu luôn tải đủ, không sót mục nào. Khi thêm module/mục dữ liệu mới (thêm KEY mới),
+   nhớ thêm key đó vào danh sách này để nó cũng được sao lưu cùng. */
+const ALL_DATA_KEYS = [
+  'teachers-list','benefit-types','benefit-policies','benefit-records',
+  'assistants-list','session-tasks','kbg-items','shift-requests','reward-records',
+  'task-sheet-url','kbg-sheet-url',
+  'classes-list','class-students','attendance-records','class-sheet-url',
+  'student-feedback',
+  'schedule-needs','weekly-schedule-rows','teacher-hour-targets','teacher-name-aliases','schedule-sheet-url',
+  'care-records','internal-content-posts','change-hours-requests','budget-items',
+  'name-mismatches','class-rates','leads-list','enrolled-students','staff-list'
+];
+function setBackupStatus(msg, isError){
+  const el = document.getElementById('backupStatus');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red-deep)' : 'var(--green)';
+}
+async function exportAllDataBackup(){
+  setBackupStatus('Đang tải dữ liệu để sao lưu…', false);
+  const data = {};
+  for(const k of ALL_DATA_KEYS){
+    try{ data[k] = await fbGet(k); }
+    catch(e){ data[k] = null; }
+  }
+  const payload = { app: 'TT-Tieng-trung-thay-hung', exportedAt: new Date().toISOString(), data };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  a.href = url; a.download = `sao-luu-du-lieu-${stamp}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setBackupStatus(`✓ Đã tải file sao lưu lúc ${new Date().toLocaleString('vi-VN')}.`, false);
+}
+async function restoreFromBackupFile(file){
+  let payload;
+  try{
+    const text = await file.text();
+    payload = JSON.parse(text);
+  }catch(e){
+    setBackupStatus('⚠ File không đúng định dạng sao lưu (.json) do phần mềm này tạo ra.', true);
+    return;
+  }
+  const data = payload && typeof payload === 'object' && payload.data ? payload.data : payload;
+  if(!data || typeof data !== 'object'){
+    setBackupStatus('⚠ File không đúng định dạng sao lưu.', true);
+    return;
+  }
+  const timeLabel = payload && payload.exportedAt ? new Date(payload.exportedAt).toLocaleString('vi-VN') : 'không rõ thời điểm';
+  const ok = confirm(`Khôi phục sẽ GHI ĐÈ toàn bộ dữ liệu hiện tại bằng dữ liệu trong file sao lưu (tạo lúc ${timeLabel}).\n\nBạn có chắc chắn muốn tiếp tục?`);
+  if(!ok) return;
+  setBackupStatus('Đang khôi phục…', false);
+  let count = 0;
+  for(const k of Object.keys(data)){
+    if(!ALL_DATA_KEYS.includes(k)) continue; // bỏ qua key lạ, tránh ghi rác vào máy chủ
+    try{ await fbSet(k, data[k]); count++; }catch(e){}
+  }
+  setBackupStatus(`✓ Đã khôi phục ${count} mục dữ liệu — vui lòng Ctrl+Shift+R để tải lại trang.`, false);
+}
+document.getElementById('backupExportBtn') && document.getElementById('backupExportBtn').addEventListener('click', exportAllDataBackup);
+document.getElementById('backupRestoreBtn') && document.getElementById('backupRestoreBtn').addEventListener('click', ()=>{
+  document.getElementById('backupRestoreFile').click();
+});
+document.getElementById('backupRestoreFile') && document.getElementById('backupRestoreFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(file) restoreFromBackupFile(file);
+  e.target.value = '';
+});
 
 async function loadAssistantsModule(){
   assistants = await storGet(ASST_KEY, seedAssistants);
